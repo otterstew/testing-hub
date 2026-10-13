@@ -159,3 +159,9 @@ form.add .row3 { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr))
 .signin .notice { margin: 0; }
 .links { margin: 0; font-size: 13px; color: var(--muted); }
 .link { border: 0; background: none; padding: 0; color: var(--accent); cursor: pointer; text-decoration: underline; }
+
+/* defect delete */
+.delbox { display: grid; gap: 8px; padding: 10px; border: 1px solid var(--fail); background: var(--fail-bg); border-radius: var(--r); }
+.delbox p { margin: 0; }
+.btn.danger { color: var(--fail); border-color: var(--fail); font-weight: 600; }
+textarea[aria-invalid="true"] { border-color: var(--fail); }

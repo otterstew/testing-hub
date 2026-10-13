@@ -196,7 +196,10 @@
   function segs(c, total) { return STATUSES.slice(1).concat(["Not run"]).map(function (s) { var w = total ? (c[s] / total * 100) : 0; return w ? '<i style="width:' + w.toFixed(2) + '%;background:' + scolor(s) + '" title="' + esc(s + ": " + c[s]) + '"></i>' : ""; }).join(""); }
   function pill(s) { return '<span class="pill ' + sclass(s) + '">' + esc(s || "Not run") + "</span>"; }
   function sevPill(s) { var c = s === "High" ? "s-fail" : s === "Medium" ? "s-partial" : "s-notrun"; return '<span class="pill ' + c + '">' + esc(s || "–") + "</span>"; }
-  function openDefect(d) { return ["Fixed", "Closed"].indexOf(d.status) < 0; }
+  function live(d) { return !d.deleted; }
+  function openDefect(d) { return live(d) && ["Fixed", "Closed"].indexOf(d.status) < 0; }
+  function delText(x) { return x && x.at ? fmt(x.at) + (x.by ? " by " + x.by : "") + ": " + x.reason : ""; }
+  function historyFor(id) { return state.log.filter(function (l) { var t = String(l.text || ""); return t.indexOf(id + ":") === 0 || t.indexOf(id + " ") === 0; }).slice(0, 30); }
   function qOpen(q) { return !/^answered$/i.test(q.status || "") && !/^answered[:\s]/i.test(q.status || ""); }
 
   function vOverview() {
@@ -206,7 +209,7 @@
       var L = T.filter(function (t) { return t.section === s; }), cc = counts(L), d = L.length - cc["Not run"];
       return "<tr><td>" + esc(short(s)) + '</td><td class="mono">' + d + "/" + L.length + '</td><td><div class="areabar">' + segs(cc, L.length) + '</div></td><td class="mono">' + cc.Pass + '</td><td class="mono">' + cc.Fail + '</td><td class="mono">' + cc.Blocked + "</td></tr>";
     }).join("");
-    var D = state.defects, od = D.filter(openDefect);
+    var D = state.defects.filter(live), od = D.filter(openDefect);
     var dsum = SEV.map(function (sv) {
       var n = od.filter(function (d) { return d.severity === sv; }).length, all = D.filter(function (d) { return d.severity === sv; }).length;
       return "<div>" + sevPill(sv) + '</div><div class="num">' + n + ' open</div><div class="num" style="color:var(--muted)">' + (all - n) + ' closed</div><div class="num" style="color:var(--muted)">' + all + " total</div>";
@@ -256,16 +259,29 @@
     return html + (L.length ? "" : '<p class="empty">No tests match these filters.</p>') + "</div>";
   }
 
+  function defectTail(d) {
+    var h = "";
+    if (!live(d)) h += '<div class="delbox"><p><b>Deleted</b> ' + esc(delText(d.deleted)) + '</p><button class="btn" data-act="def-restore" data-id="' + esc(d.id) + '">Restore</button></div>';
+    else if (ui.delAsk === d.id) h += '<div class="delbox"><div class="field"><label for="dr-why-' + esc(d.id) + '">Why delete ' + esc(d.id) + '? (kept in the activity log)</label><textarea id="dr-why-' + esc(d.id) + '" placeholder="e.g. Not a defect: Ogier setting, not functionality"></textarea></div>' +
+      '<div class="actions"><button class="btn danger" data-act="def-del-yes" data-id="' + esc(d.id) + '">Delete defect</button><button class="btn" data-act="def-del-no">Cancel</button></div></div>';
+    else h += '<div><button class="btn" data-act="def-del" data-id="' + esc(d.id) + '">Delete…</button></div>';
+    var hist = historyFor(d.id);
+    if (hist.length) h += '<div class="field"><span class="lab">History</span><ul class="log">' + hist.map(function (l) { return "<li><time>" + esc(fmt(l.at)) + "</time>" + esc(l.text) + "</li>"; }).join("") + "</ul></div>";
+    return h;
+  }
+
   function vDefects() {
     var q = ui.dq.toLowerCase();
     var L = state.defects.filter(function (d) {
+      if (ui.dstatus === "deleted") { if (live(d)) return false; }
+      else if (!live(d)) return false;
       if (ui.dstatus === "open" && !openDefect(d)) return false;
-      if (ui.dstatus && ui.dstatus !== "open" && d.status !== ui.dstatus) return false;
+      if (ui.dstatus && ui.dstatus !== "open" && ui.dstatus !== "deleted" && d.status !== ui.dstatus) return false;
       if (q && (d.id + " " + d.summary + " " + d.area + " " + d.ref).toLowerCase().indexOf(q) < 0) return false;
       return true;
     });
     var nextId = nextDefectId();
-    var html = '<div class="filters"><input type="search" id="f-dq" placeholder="Search defects" value="' + esc(ui.dq) + '"><select id="f-dstatus"><option value="">All defects</option><option value="open"' + (ui.dstatus === "open" ? " selected" : "") + ">Open only</option>" + DSTATUS.map(function (s) { return "<option" + (s === ui.dstatus ? " selected" : "") + ">" + esc(s) + "</option>"; }).join("") + '</select><span class="count">' + L.length + " shown</span></div>";
+    var html = '<div class="filters"><input type="search" id="f-dq" placeholder="Search defects" value="' + esc(ui.dq) + '"><select id="f-dstatus"><option value="">All defects</option><option value="open"' + (ui.dstatus === "open" ? " selected" : "") + ">Open only</option>" + DSTATUS.map(function (s) { return "<option" + (s === ui.dstatus ? " selected" : "") + ">" + esc(s) + "</option>"; }).join("") + '<option value="deleted"' + (ui.dstatus === "deleted" ? " selected" : "") + ">Deleted (" + state.defects.filter(function (d) { return !live(d); }).length + ")</option>" + '</select><span class="count">' + L.length + " shown</span></div>";
     if (!ui.readOnly) html += '<form class="add" id="add-defect"><div class="eyebrow">New defect · ' + nextId + '</div><div class="row3"><div class="field"><label for="nd-area">Area</label><input type="text" id="nd-area" required placeholder="e.g. Rules"></div><div class="field"><label for="nd-sev">Severity</label><select id="nd-sev">' + SEV.map(function (s) { return "<option" + (s === "Medium" ? " selected" : "") + ">" + s + "</option>"; }).join("") + '</select></div><div class="field"><label for="nd-ref">Test ref</label><input type="text" id="nd-ref" placeholder="e.g. RUL-01"></div></div><div class="field"><label for="nd-sum">What goes wrong</label><textarea id="nd-sum" required></textarea></div><div class="field"><label for="nd-steps">Steps / evidence</label><input type="text" id="nd-steps"></div><div><button class="btn primary" type="submit">Add defect</button></div></form>';
     html += '<div class="list">' + L.map(function (d) {
       return '<details class="item" data-id="' + esc(d.id) + '"' + (ui.open === d.id ? " open" : "") + '><summary><span class="mono">' + esc(d.id) + '</span><span class="obj">' + esc(d.summary) + "<small>" + esc(d.area) + (d.ref ? " · " + esc(d.ref) : "") + " · " + esc(d.date) + "</small></span>" + sevPill(d.severity) + "</summary>" +
@@ -275,7 +291,7 @@
         '<div class="field"><label for="dv-' + esc(d.id) + '">Severity</label><select id="dv-' + esc(d.id) + '" data-k="defects" data-f="severity" data-l="severity" data-id="' + esc(d.id) + '"' + (ui.readOnly ? " disabled" : "") + ">" + SEV.map(function (s) { return "<option" + (s === d.severity ? " selected" : "") + ">" + s + "</option>"; }).join("") + "</select></div></div>" +
         '<div class="row2"><div class="field"><label for="dr-' + esc(d.id) + '">Raised with B4 (date)</label><input type="text" id="dr-' + esc(d.id) + '" data-k="defects" data-f="raised" data-l="raised" data-id="' + esc(d.id) + '" value="' + esc(d.raised) + '"' + (ui.readOnly ? " disabled" : "") + "></div>" +
         '<div class="field"><label for="df-' + esc(d.id) + '">Fix version</label><input type="text" id="df-' + esc(d.id) + '" data-k="defects" data-f="fix" data-l="fix version" data-id="' + esc(d.id) + '" value="' + esc(d.fix) + '"' + (ui.readOnly ? " disabled" : "") + "></div></div>" +
-        '<div class="field"><label for="drr-' + esc(d.id) + '">Retest result</label><input type="text" id="drr-' + esc(d.id) + '" data-k="defects" data-f="retestResult" data-l="retest result" data-id="' + esc(d.id) + '" value="' + esc(d.retestResult) + '"' + (ui.readOnly ? " disabled" : "") + "></div></div></div></details>";
+        '<div class="field"><label for="drr-' + esc(d.id) + '">Retest result</label><input type="text" id="drr-' + esc(d.id) + '" data-k="defects" data-f="retestResult" data-l="retest result" data-id="' + esc(d.id) + '" value="' + esc(d.retestResult) + '"' + (ui.readOnly ? " disabled" : "") + "></div>" + defectTail(d) + "</div></div></details>";
     }).join("") + (L.length ? "" : '<p class="empty">No defects match.</p>') + "</div>";
     return html;
   }
@@ -303,7 +319,7 @@
   var COLS = {
     tests: [["ID", "id"], ["Area", "area"], ["Note ref", "ref"], ["Previous result (13 Oct)", "prev"], ["Objective", "objective"], ["Pre-conditions", "pre"], ["Steps", "steps"], ["Test data", "data"], ["Expected result", "expected"], ["Actual result", "actual"], ["Status", "status"], ["Evidence", "evidence"], ["Comments", "comments"]],
     parties: [["ID", "id"], ["Record name to create", "name"], ["Module", "module"], ["Party type", "type"], ["Purpose", "purpose"], ["Expected final risk (once working)", "expectedFinal"], ["Expected in current build", "expectedNow"], ["Used by tests", "tests"], ["Recorded in CFG-05", "recorded"]],
-    defects: [["ID", "id"], ["Date found", "date"], ["Area", "area"], ["Summary", "summary"], ["Steps / evidence", "steps"], ["Severity", "severity"], ["Test ref", "ref"], ["Status", "status"], ["Raised with B4 (date)", "raised"], ["Fix version", "fix"], ["Retest date", "retestDate"], ["Retest result", "retestResult"]],
+    defects: [["ID", "id"], ["Date found", "date"], ["Area", "area"], ["Summary", "summary"], ["Steps / evidence", "steps"], ["Severity", "severity"], ["Test ref", "ref"], ["Status", "status"], ["Raised with B4 (date)", "raised"], ["Fix version", "fix"], ["Retest date", "retestDate"], ["Retest result", "retestResult"], ["Deleted (reason)", "deleted"]],
     questions: [["#", "n"], ["Question", "q"], ["Answer", "a"], ["Tests affected", "tests"], ["Status", "status"]]
   };
   var SHEETS = { tests: "Test cases", parties: "Test parties", defects: "Defect log", questions: "Questions and answers" };
@@ -314,7 +330,7 @@
     var wb = XLSX.utils.book_new();
     Object.keys(SHEETS).forEach(function (k) {
       var rows = [COLS[k].map(function (c) { return c[0]; })];
-      state[k].forEach(function (r) { rows.push(COLS[k].map(function (c) { return r[c[1]] || ""; })); });
+      state[k].forEach(function (r) { rows.push(COLS[k].map(function (c) { return c[1] === "deleted" ? delText(r.deleted) : (r[c[1]] || ""); })); });
       var ws = XLSX.utils.aoa_to_sheet(rows);
       ws["!cols"] = COLS[k].map(function (c) { return { wch: Math.min(60, Math.max(8, c[0].length + 2)) }; });
       XLSX.utils.book_append_sheet(wb, ws, SHEETS[k]);
@@ -370,7 +386,7 @@
     var d = ui.importDiff; if (!d) return;
     d.changes.forEach(function (c) {
       if (c.add) {
-        var rec = {}; COLS.defects.forEach(function (x) { rec[x[1]] = c.add[x[1]] || ""; });
+        var rec = {}; COLS.defects.forEach(function (x) { rec[x[1]] = c.add[x[1]] || ""; }); delete rec.deleted;
         state.defects.push(rec); if (hosted) queue("defect", rec); return;
       }
       var cur = getRec(c.k, c.id);
@@ -379,6 +395,23 @@
     addLog("Imported " + d.changes.length + " change(s) from " + d.name + ".");
     if (!hosted) { dirty += d.changes.length; saveDraft(); }
     ui.importDiff = null; render();
+  }
+
+  function persistDefect(d) { if (hosted) queue("defect", d); else { dirty++; saveDraft(); } }
+  function deleteDefect(id) {
+    var d = find(state.defects, id), el = document.getElementById("dr-why-" + id), why = el ? el.value.trim() : "";
+    if (!d) return;
+    if (!why) { if (el) { el.focus(); el.setAttribute("aria-invalid", "true"); el.placeholder = "A reason is needed to delete " + id; } return; }
+    d.deleted = { at: now(), by: (user && user.email) || "", reason: why };
+    addLog(id + " deleted: " + why);
+    persistDefect(d); ui.delAsk = null; ui.open = null;
+    ui.notice = { kind: "", text: id + " deleted. It stays under Deleted in the defect filter, where you can restore it." }; render();
+  }
+  function restoreDefect(id) {
+    var d = find(state.defects, id); if (!d || !d.deleted) return;
+    var why = d.deleted.reason; delete d.deleted;
+    addLog(id + " restored (had been deleted: " + why + ")");
+    persistDefect(d); ui.notice = { kind: "", text: id + " restored." }; render();
   }
 
   function notify(kind, text) { ui.notice = { kind: kind, text: text }; render(); }
@@ -560,6 +593,10 @@
     else if (a === "doc-del") { ui.confirmDel = t.getAttribute("data-id"); render(); }
     else if (a === "doc-del-no") { ui.confirmDel = null; render(); }
     else if (a === "doc-del-yes") deleteDoc(t.getAttribute("data-id"));
+    else if (a === "def-del") { ui.delAsk = t.getAttribute("data-id"); render(); var w = document.getElementById("dr-why-" + ui.delAsk); if (w) w.focus(); }
+    else if (a === "def-del-no") { ui.delAsk = null; render(); }
+    else if (a === "def-del-yes") deleteDefect(t.getAttribute("data-id"));
+    else if (a === "def-restore") restoreDefect(t.getAttribute("data-id"));
   });
   document.addEventListener("change", function (e) {
     var el = e.target;
