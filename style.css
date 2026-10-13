@@ -165,3 +165,14 @@ form.add .row3 { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr))
 .delbox p { margin: 0; }
 .btn.danger { color: var(--fail); border-color: var(--fail); font-weight: 600; }
 textarea[aria-invalid="true"] { border-color: var(--fail); }
+
+/* party set-up guide */
+details.guide { background: var(--surface); border: 1px solid var(--line); border-left: 3px solid var(--accent); border-radius: var(--r); margin-top: 4px; }
+details.guide > summary { cursor: pointer; padding: 10px 12px; font-weight: 600; }
+.guide-in { padding: 0 14px 12px; display: grid; gap: 8px; }
+.guide-in p, .guide-in ol { margin: 0; }
+.guide-in ol { padding-left: 20px; display: grid; gap: 4px; }
+table.ctl { font-size: 13px; }
+table.ctl th { position: static; width: 34%; background: var(--surface-2); color: var(--fg); font-weight: 600; }
+@media (max-width: 600px) { table.ctl th, table.ctl td { display: block; width: auto; } }
+.setv { background: var(--surface-2); border-radius: var(--r); padding: 6px 8px; }

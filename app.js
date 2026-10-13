@@ -120,7 +120,7 @@
       (r[0].data || []).forEach(function (row) {
         serverAt[row.kind + "|" + row.rid] = row.updated_at;
         if (row.updated_at > latest) latest = row.updated_at;
-        if (row.kind === "meta") { if (row.data && row.data.project) s.project = row.data.project; if (row.data && row.data.source) s.source = row.data.source; return; }
+        if (row.kind === "meta") { if (row.rid === "setup") { s.setup = row.data; return; } if (row.data && row.data.project) s.project = row.data.project; if (row.data && row.data.source) s.source = row.data.source; return; }
         if (LIST[row.kind]) s[LIST[row.kind]].push(row.data);
       });
       s.log = (r[1].data || []).map(function (l) { return { at: local(new Date(l.at)), text: l.text }; });
@@ -296,16 +296,46 @@
     return html;
   }
 
+  function vSetup() {
+    var g = state.setup; if (!g) return "";
+    var anyRec = state.parties.some(function (p) { return p.recorded; });
+    return '<details class="guide"' + (anyRec ? "" : " open") + "><summary>" + esc(g.title || "How to set up a test party") + "</summary><div class=\"guide-in\">" +
+      (g.intro ? "<p>" + esc(g.intro) + "</p>" : "") +
+      (g.steps && g.steps.length ? "<ol>" + g.steps.map(function (s) { return "<li>" + esc(s) + "</li>"; }).join("") + "</ol>" : "") +
+      (g.controls && g.controls.length ? '<div class="eyebrow">Control values</div><table class="ctl"><tbody>' + g.controls.map(function (c) { return "<tr><th>" + esc(c[0]) + "</th><td>" + esc(c[1]) + "</td></tr>"; }).join("") + "</tbody></table>" : "") +
+      (g.order ? '<p class="count">' + esc(g.order) + "</p>" : "") + "</div></details>";
+  }
+
   function vParties() {
     var rec = state.parties.filter(function (p) { return p.recorded; }).length;
-    return "<h2>Test parties<small>" + rec + " of " + state.parties.length + " recorded</small></h2>" +
-      '<div class="tablewrap"><table><thead><tr><th>ID</th><th>Record</th><th>Purpose</th><th>Expected now</th><th>Once working</th><th>Recorded</th></tr></thead><tbody>' +
-      state.parties.map(function (p) {
-        var match = p.recorded ? (String(p.expectedNow).indexOf(p.recorded) === 0 && String(p.expectedNow).charAt(p.recorded.length) !== "+") : null;
-        return '<tr><td class="mono">' + esc(p.id) + "</td><td>" + esc(p.name) + '<br><span class="count">' + esc(p.module + " · " + p.type) + "</span></td><td>" + esc(p.purpose) + "</td><td>" + esc(p.expectedNow) + "</td><td>" + esc(p.expectedFinal) + (p.total ? ' <span class="count num">(' + esc(p.total) + ")</span>" : "") + "</td>" +
-          '<td><select aria-label="Recorded result for ' + esc(p.id) + '" id="pr-' + esc(p.id) + '" data-k="parties" data-f="recorded" data-l="recorded" data-id="' + esc(p.id) + '"' + (ui.readOnly ? " disabled" : "") + ">" + LEVELS.map(function (l) { return '<option value="' + l + '"' + (l === (p.recorded || "") ? " selected" : "") + ">" + (l || "–") + "</option>"; }).join("") + "</select>" +
-          (match === null ? "" : match ? ' <span class="pill s-pass">matches</span>' : ' <span class="pill s-partial">check</span>') + "</td></tr>";
-      }).join("") + "</tbody></table></div>";
+    var q = (ui.pq || "").toLowerCase(), types = [];
+    state.parties.forEach(function (p) { var t = p.module + " · " + p.type; if (types.indexOf(t) < 0) types.push(t); });
+    var L = state.parties.filter(function (p) {
+      if (ui.ptype && p.module + " · " + p.type !== ui.ptype) return false;
+      if (ui.precorded === "yes" && !p.recorded) return false;
+      if (ui.precorded === "no" && p.recorded) return false;
+      if (q && (p.id + " " + p.name + " " + p.purpose + " " + p.values + " " + p.related + " " + p.tests).toLowerCase().indexOf(q) < 0) return false;
+      return true;
+    });
+    var h = "<h2>Test parties<small>" + rec + " of " + state.parties.length + " recorded</small></h2>" + vSetup() +
+      '<div class="filters"><input type="search" id="f-pq" placeholder="Search parties, values or tests" value="' + esc(ui.pq || "") + '">' +
+      '<select id="f-ptype"><option value="">All party types</option>' + types.map(function (t) { return "<option" + (t === ui.ptype ? " selected" : "") + ">" + esc(t) + "</option>"; }).join("") + "</select>" +
+      '<select id="f-prec"><option value="">Recorded or not</option><option value="no"' + (ui.precorded === "no" ? " selected" : "") + '>Not recorded yet</option><option value="yes"' + (ui.precorded === "yes" ? " selected" : "") + ">Recorded</option></select>" +
+      '<span class="count">' + L.length + " shown</span></div><div class=\"list\">";
+    h += L.map(function (p) {
+      var match = p.recorded ? (String(p.expectedNow).indexOf(p.recorded) === 0 && String(p.expectedNow).charAt(p.recorded.length) !== "+") : null;
+      var chip = match === null ? '<span class="pill s-notrun">Not recorded</span>' : match ? '<span class="pill s-pass">' + esc(p.recorded) + " · matches</span>" : '<span class="pill s-partial">' + esc(p.recorded) + " · check</span>";
+      return '<details class="item" data-id="' + esc(p.id) + '"' + (ui.open === p.id ? " open" : "") + '><summary><span class="mono">' + esc(p.id) + '</span><span class="obj">' + esc(p.name) + "<small>" + esc(p.module + " · " + p.type) + " · expected now: " + esc(p.expectedNow) + "</small></span>" + chip + "</summary>" +
+        '<div class="body"><div class="field" style="gap:10px">' +
+        '<div class="field"><span class="lab">Purpose</span><div class="txt">' + esc(p.purpose) + "</div></div>" +
+        '<div class="field"><span class="lab">Values to enter (everything else: control values)</span><div class="txt setv">' + esc(p.values || "All control values.") + "</div></div>" +
+        '<div class="field"><span class="lab">Related parties to add</span><div class="txt setv">' + esc(p.related || "None") + "</div></div></div>" +
+        '<div class="edit"><div class="row2"><div class="field"><span class="lab">Expected in current build</span><div class="txt">' + esc(p.expectedNow) + "</div></div>" +
+        '<div class="field"><span class="lab">Once working</span><div class="txt">' + esc(p.expectedFinal) + (p.total ? ' <span class="count num">(' + esc(p.total) + ")</span>" : "") + "</div></div></div>" +
+        '<div class="field"><label for="pr-' + esc(p.id) + '">Recorded final risk</label><select id="pr-' + esc(p.id) + '" data-k="parties" data-f="recorded" data-l="recorded" data-id="' + esc(p.id) + '"' + (ui.readOnly ? " disabled" : "") + ">" + LEVELS.map(function (l) { return '<option value="' + l + '"' + (l === (p.recorded || "") ? " selected" : "") + ">" + (l || "–") + "</option>"; }).join("") + "</select></div>" +
+        '<div class="field"><span class="lab">Used by tests</span><div class="txt">' + esc(p.tests) + "</div></div></div></div></details>";
+    }).join("") + (L.length ? "" : '<p class="empty">No parties match.</p>') + "</div>";
+    return h;
   }
 
   function vQuestions() {
@@ -318,7 +348,7 @@
 
   var COLS = {
     tests: [["ID", "id"], ["Area", "area"], ["Note ref", "ref"], ["Previous result (13 Oct)", "prev"], ["Objective", "objective"], ["Pre-conditions", "pre"], ["Steps", "steps"], ["Test data", "data"], ["Expected result", "expected"], ["Actual result", "actual"], ["Status", "status"], ["Evidence", "evidence"], ["Comments", "comments"]],
-    parties: [["ID", "id"], ["Record name to create", "name"], ["Module", "module"], ["Party type", "type"], ["Purpose", "purpose"], ["Expected final risk (once working)", "expectedFinal"], ["Expected in current build", "expectedNow"], ["Used by tests", "tests"], ["Recorded in CFG-05", "recorded"]],
+    parties: [["ID", "id"], ["Record name to create", "name"], ["Module", "module"], ["Party type", "type"], ["Purpose", "purpose"], ["Values to enter (fields that drive the score)", "values"], ["Related parties to add", "related"], ["Expected final risk (once working)", "expectedFinal"], ["Expected in current build", "expectedNow"], ["Used by tests", "tests"], ["Recorded in CFG-05", "recorded"]],
     defects: [["ID", "id"], ["Date found", "date"], ["Area", "area"], ["Summary", "summary"], ["Steps / evidence", "steps"], ["Severity", "severity"], ["Test ref", "ref"], ["Status", "status"], ["Raised with B4 (date)", "raised"], ["Fix version", "fix"], ["Retest date", "retestDate"], ["Retest result", "retestResult"], ["Deleted (reason)", "deleted"]],
     questions: [["#", "n"], ["Question", "q"], ["Answer", "a"], ["Tests affected", "tests"], ["Status", "status"]]
   };
@@ -605,12 +635,15 @@
     if (el.id === "f-area") { ui.area = el.value; render(); return; }
     if (el.id === "f-status") { ui.status = el.value; render(); return; }
     if (el.id === "f-dstatus") { ui.dstatus = el.value; render(); return; }
+    if (el.id === "f-ptype") { ui.ptype = el.value; render(); return; }
+    if (el.id === "f-prec") { ui.precorded = el.value; render(); return; }
     if (el.dataset && el.dataset.k) setField(el.dataset.k, el.dataset.id, el.dataset.f, el.value, el.dataset.l);
   });
   document.addEventListener("input", function (e) {
     var el = e.target;
     if (el.id === "f-q") { ui.q = el.value; render(); }
     else if (el.id === "f-dq") { ui.dq = el.value; render(); }
+    else if (el.id === "f-pq") { ui.pq = el.value; render(); }
   });
   document.addEventListener("submit", function (e) {
     if (e.target.id === "auth-form") { e.preventDefault(); authSubmit(); return; }
@@ -640,7 +673,7 @@
       if (loadedFor !== user.id && !(mode === "signin" && ui.auth === "newpass")) { loadedFor = user.id; setTimeout(loadAll, 0); }
     } else if (evt === "SIGNED_OUT" || evt === "INITIAL_SESSION") {
       user = null; loadedFor = null; mode = "signin"; ui.auth = "signin"; pend = {}; pendLog = [];
-      state = { project: state.project, tests: [], parties: [], defects: [], questions: [], docs: [], log: [] };
+      state = { project: state.project, tests: [], parties: [], defects: [], questions: [], docs: [], log: [] }; ui.pq = ""; ui.ptype = ""; ui.precorded = "";
       render();
     }
   });
