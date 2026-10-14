@@ -189,3 +189,11 @@ table.ctl th { position: static; width: 34%; background: var(--surface-2); color
 .shot-x:hover { color: var(--fail); border-color: var(--fail); }
 .shot-ask { display: flex; gap: 6px; flex-wrap: wrap; }
 .shot-add { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-top: 6px; }
+/* Defects blocking tests: linked items as chips, each opens the other side. */
+.blk { display: grid; gap: 6px; margin-bottom: 6px; }
+.blk-chip { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; border: 1px solid var(--line); border-radius: var(--r); padding: 6px 8px; background: var(--surface); }
+.blk-go { flex: 1 1 200px; min-width: 0; border: 0; background: none; padding: 0; text-align: left; color: var(--fg); cursor: pointer; font: inherit; }
+.blk-go:hover { color: var(--accent); text-decoration: underline; }
+.blk-go b { margin-right: 4px; color: var(--accent); }
+.chip-x { border: 1px solid var(--line); background: var(--surface); color: var(--muted); border-radius: 50%; width: 24px; height: 24px; line-height: 1; cursor: pointer; font-size: 15px; }
+.chip-x:hover { color: var(--fail); border-color: var(--fail); }

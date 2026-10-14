@@ -251,7 +251,7 @@
     var last = null;
     L.forEach(function (t) {
       if (short(t.section) !== last) { last = short(t.section); html += '<div class="sec">' + esc(last) + "</div>"; }
-      html += '<details class="item" data-id="' + esc(t.id) + '"' + (ui.open === t.id ? " open" : "") + '><summary><span class="mono">' + esc(t.id) + '</span><span class="obj">' + esc(t.objective) + "<small>" + esc(t.ref) + (t.prev ? " · before: " + esc(t.prev) : "") + "</small></span>" + pill(t.status) + "</summary>" +
+      html += '<details class="item" data-id="' + esc(t.id) + '"' + (ui.open === t.id ? " open" : "") + '><summary><span class="mono">' + esc(t.id) + '</span><span class="obj">' + esc(t.objective) + "<small>" + [esc(t.ref), t.prev ? "before: " + esc(t.prev) : "", t.blockedBy && t.blockedBy.length ? "blocked by " + esc(t.blockedBy.join(", ")) : ""].filter(Boolean).join(" · ") + "</small></span>" + pill(t.status) + "</summary>" +
         '<div class="body"><div class="field" style="gap:10px">' +
         (t.pre ? '<div class="field"><span class="lab">Pre-conditions</span><div class="txt">' + esc(t.pre) + "</div></div>" : "") +
         '<div class="field"><span class="lab">Steps</span><div class="txt">' + esc(t.steps) + "</div></div>" +
@@ -260,9 +260,63 @@
         '<div class="edit"><div class="row2"><div class="field"><label for="st-' + esc(t.id) + '">Result</label><select id="st-' + esc(t.id) + '" data-k="tests" data-f="status" data-l="result" data-id="' + esc(t.id) + '"' + (ui.readOnly ? " disabled" : "") + ">" + STATUSES.map(function (s) { return "<option" + (s === (t.status || "Not run") ? " selected" : "") + ">" + esc(s) + "</option>"; }).join("") + "</select></div>" +
         '<div class="field"><label for="ev-' + esc(t.id) + '">Evidence</label><input type="text" id="ev-' + esc(t.id) + '" data-k="tests" data-f="evidence" data-l="evidence" data-id="' + esc(t.id) + '" value="' + esc(t.evidence) + '"' + (ui.readOnly ? " disabled" : "") + "></div></div>" +
         '<div class="field"><label for="ac-' + esc(t.id) + '">Actual result</label><textarea id="ac-' + esc(t.id) + '" data-k="tests" data-f="actual" data-l="actual result" data-id="' + esc(t.id) + '"' + (ui.readOnly ? " disabled" : "") + ">" + esc(t.actual) + "</textarea></div>" +
-        '<div class="field"><label for="co-' + esc(t.id) + '">Comments</label><textarea id="co-' + esc(t.id) + '" data-k="tests" data-f="comments" data-l="comments" data-id="' + esc(t.id) + '"' + (ui.readOnly ? " disabled" : "") + ">" + esc(t.comments) + "</textarea></div></div></div></details>";
+        '<div class="field"><label for="co-' + esc(t.id) + '">Comments</label><textarea id="co-' + esc(t.id) + '" data-k="tests" data-f="comments" data-l="comments" data-id="' + esc(t.id) + '"' + (ui.readOnly ? " disabled" : "") + ">" + esc(t.comments) + "</textarea></div>" + blockedByHtml(t) + "</div></div></details>";
     });
     return html + (L.length ? "" : '<p class="empty">No tests match these filters.</p>') + "</div>";
+  }
+
+  // ---------- defects blocking tests ----------
+  // A test keeps the defects blocking it in blockedBy: ["D-01", ...]. The defect
+  // side is worked out from the tests, so the link lives in one place only.
+  function blockedTests(did) { return state.tests.filter(function (t) { return (t.blockedBy || []).indexOf(did) >= 0; }); }
+  function saveTest(t) { if (hosted) queue("test", t); else { dirty++; saveDraft(); } }
+  function blockedByHtml(t) {
+    var ids = t.blockedBy || [], ro = ui.readOnly;
+    var h = '<div class="field"><span class="lab">Blocked by defects</span>';
+    h += ids.length ? '<div class="blk">' + ids.map(function (id) {
+      var d = find(state.defects, id);
+      return '<span class="blk-chip"><button class="blk-go" data-act="goto-defect" data-id="' + esc(id) + '" title="Open ' + esc(id) + '"><b class="mono">' + esc(id) + "</b> " + esc(d ? d.summary : "(no longer in the log)") + "</button>" + (d ? dstatusPill(d) : "") +
+        (ro ? "" : '<button class="chip-x" data-act="unblock" data-id="' + esc(t.id) + '" data-def="' + esc(id) + '" title="Unlink ' + esc(id) + '" aria-label="Unlink ' + esc(id) + '">×</button>') + "</span>";
+    }).join("") + "</div>" : '<div class="txt count">None linked.</div>';
+    if (!ro) {
+      var free = state.defects.filter(function (d) { return live(d) && ids.indexOf(d.id) < 0; });
+      var opt = function (d) { return '<option value="' + esc(d.id) + '">' + esc(d.id + " · " + (d.status || "Open") + " · " + String(d.summary || "").slice(0, 80)) + "</option>"; };
+      var open = free.filter(openDefect), done = free.filter(function (d) { return !openDefect(d); });
+      if (free.length) h += '<select id="bl-' + esc(t.id) + '" data-block="' + esc(t.id) + '" aria-label="Link a defect blocking ' + esc(t.id) + '"><option value="">Link a defect…</option>' +
+        (open.length ? '<optgroup label="Open">' + open.map(opt).join("") + "</optgroup>" : "") +
+        (done.length ? '<optgroup label="Fixed or closed">' + done.map(opt).join("") + "</optgroup>" : "") + "</select>";
+      else if (!state.defects.filter(live).length) h += '<div class="count">No defects logged yet.</div>';
+      if (ids.length && t.status !== "Blocked") h += '<div><button class="btn" data-act="set-blocked" data-id="' + esc(t.id) + '">Set result to Blocked</button></div>';
+    }
+    return h + "</div>";
+  }
+  function blockingHtml(d) {
+    var T = blockedTests(d.id);
+    if (!T.length) return "";
+    return '<div class="field"><span class="lab">Blocking tests · ' + T.length + '</span><div class="blk">' + T.map(function (t) {
+      return '<span class="blk-chip"><button class="blk-go" data-act="goto-test" data-id="' + esc(t.id) + '" title="Open ' + esc(t.id) + '"><b class="mono">' + esc(t.id) + "</b> " + esc(t.objective) + "</button>" + pill(t.status) + "</span>";
+    }).join("") + "</div></div>";
+  }
+  function linkBlock(tid, did) {
+    var t = find(state.tests, tid); if (!t || !did || (t.blockedBy || []).indexOf(did) >= 0) return;
+    t.blockedBy = (t.blockedBy || []).concat(did);
+    addLog(tid + ": blocked by " + did); addLog(did + ": blocking " + tid);
+    saveTest(t); ui.open = tid; render();
+  }
+  function unlinkBlock(tid, did) {
+    var t = find(state.tests, tid); if (!t) return;
+    t.blockedBy = (t.blockedBy || []).filter(function (x) { return x !== did; });
+    addLog(tid + ": no longer blocked by " + did); addLog(did + ": no longer blocking " + tid);
+    saveTest(t); ui.open = tid; render();
+  }
+  // Jump to a test or defect and open it, clearing filters that would hide it.
+  function goTo(tab, id) {
+    Array.prototype.forEach.call(document.querySelectorAll("details.item[open]"), function (el) { el.open = false; });
+    ui.tab = tab; ui.open = id;
+    if (tab === "tests") { ui.q = ""; ui.area = ""; ui.status = ""; } else { ui.dq = ""; ui.dstatus = live(find(state.defects, id) || {}) ? "" : "deleted"; }
+    try { history.replaceState(null, "", "#" + tab); } catch (x) {}
+    render();
+    var el = document.querySelector('details.item[data-id="' + id + '"]'); if (el) el.scrollIntoView({ block: "start" });
   }
 
   function defectTail(d) {
@@ -290,8 +344,8 @@
     var html = '<div class="filters"><input type="search" id="f-dq" placeholder="Search defects" value="' + esc(ui.dq) + '"><select id="f-dstatus"><option value="">All defects</option><option value="open"' + (ui.dstatus === "open" ? " selected" : "") + ">Open only</option>" + DSTATUS.map(function (s) { return "<option" + (s === ui.dstatus ? " selected" : "") + ">" + esc(s) + "</option>"; }).join("") + '<option value="deleted"' + (ui.dstatus === "deleted" ? " selected" : "") + ">Deleted (" + state.defects.filter(function (d) { return !live(d); }).length + ")</option>" + '</select><span class="count">' + L.length + " shown</span></div>";
     if (!ui.readOnly) html += '<form class="add" id="add-defect"><div class="eyebrow">New defect · ' + nextId + '</div><div class="row3"><div class="field"><label for="nd-area">Area</label><input type="text" id="nd-area" required placeholder="e.g. Rules"></div><div class="field"><label for="nd-sev">Severity</label><select id="nd-sev">' + SEV.map(function (s) { return "<option" + (s === "Medium" ? " selected" : "") + ">" + s + "</option>"; }).join("") + '</select></div><div class="field"><label for="nd-ref">Test ref</label><input type="text" id="nd-ref" placeholder="e.g. RUL-01"></div></div><div class="field"><label for="nd-sum">What goes wrong</label><textarea id="nd-sum" required></textarea></div><div class="field"><label for="nd-steps">Steps / evidence</label><input type="text" id="nd-steps"></div><div><button class="btn primary" type="submit">Add defect</button></div></form>';
     html += '<div class="list">' + L.map(function (d) {
-      return '<details class="item" data-id="' + esc(d.id) + '"' + (ui.open === d.id ? " open" : "") + '><summary><span class="mono">' + esc(d.id) + '</span><span class="obj">' + esc(d.summary) + "<small>" + esc(d.area) + (d.ref ? " · " + esc(d.ref) : "") + " · " + esc(d.date) + (d.shots && d.shots.length ? " · " + d.shots.length + " screenshot" + (d.shots.length === 1 ? "" : "s") : "") + "</small></span>" + '<span class="pills">' + dstatusPill(d) + sevPill(d.severity) + "</span></summary>" +
-        '<div class="body"><div class="field" style="gap:10px"><div class="field"><span class="lab">Steps / evidence</span><div class="txt">' + esc(d.steps || "–") + "</div></div>" + shotsHtml(d) +
+      return '<details class="item" data-id="' + esc(d.id) + '"' + (ui.open === d.id ? " open" : "") + '><summary><span class="mono">' + esc(d.id) + '</span><span class="obj">' + esc(d.summary) + "<small>" + esc(d.area) + (d.ref ? " · " + esc(d.ref) : "") + " · " + esc(d.date) + (d.shots && d.shots.length ? " · " + d.shots.length + " screenshot" + (d.shots.length === 1 ? "" : "s") : "") + (blockedTests(d.id).length ? " · blocks " + blockedTests(d.id).length + " test" + (blockedTests(d.id).length === 1 ? "" : "s") : "") + "</small></span>" + '<span class="pills">' + dstatusPill(d) + sevPill(d.severity) + "</span></summary>" +
+        '<div class="body"><div class="field" style="gap:10px"><div class="field"><span class="lab">Steps / evidence</span><div class="txt">' + esc(d.steps || "–") + "</div></div>" + shotsHtml(d) + blockingHtml(d) +
         '<div class="field"><label for="dsum-' + esc(d.id) + '">Summary</label><textarea id="dsum-' + esc(d.id) + '" data-k="defects" data-f="summary" data-l="summary" data-id="' + esc(d.id) + '"' + (ui.readOnly ? " disabled" : "") + ">" + esc(d.summary) + "</textarea></div></div>" +
         '<div class="edit"><div class="row2"><div class="field"><label for="ds-' + esc(d.id) + '">Status</label><select id="ds-' + esc(d.id) + '" data-k="defects" data-f="status" data-l="status" data-id="' + esc(d.id) + '"' + (ui.readOnly ? " disabled" : "") + ">" + (DSTATUS.indexOf(d.status) < 0 ? "<option selected>" + esc(d.status) + "</option>" : "") + DSTATUS.map(function (s) { return "<option" + (s === d.status ? " selected" : "") + ">" + esc(s) + "</option>"; }).join("") + "</select></div>" +
         '<div class="field"><label for="dv-' + esc(d.id) + '">Severity</label><select id="dv-' + esc(d.id) + '" data-k="defects" data-f="severity" data-l="severity" data-id="' + esc(d.id) + '"' + (ui.readOnly ? " disabled" : "") + ">" + SEV.map(function (s) { return "<option" + (s === d.severity ? " selected" : "") + ">" + s + "</option>"; }).join("") + "</select></div></div>" +
@@ -353,7 +407,7 @@
   }
 
   var COLS = {
-    tests: [["ID", "id"], ["Area", "area"], ["Note ref", "ref"], ["Previous result (13 Oct)", "prev"], ["Objective", "objective"], ["Pre-conditions", "pre"], ["Steps", "steps"], ["Test data", "data"], ["Expected result", "expected"], ["Actual result", "actual"], ["Status", "status"], ["Evidence", "evidence"], ["Comments", "comments"]],
+    tests: [["ID", "id"], ["Area", "area"], ["Note ref", "ref"], ["Previous result (13 Oct)", "prev"], ["Objective", "objective"], ["Pre-conditions", "pre"], ["Steps", "steps"], ["Test data", "data"], ["Expected result", "expected"], ["Actual result", "actual"], ["Status", "status"], ["Evidence", "evidence"], ["Comments", "comments"], ["Blocked by defects", "blockedBy"]],
     parties: [["ID", "id"], ["Record name to create", "name"], ["Module", "module"], ["Party type", "type"], ["Purpose", "purpose"], ["Values to enter (fields that drive the score)", "values"], ["Related parties to add", "related"], ["Expected final risk (once working)", "expectedFinal"], ["Expected in current build", "expectedNow"], ["Used by tests", "tests"], ["Recorded in CFG-05", "recorded"]],
     defects: [["ID", "id"], ["Date found", "date"], ["Area", "area"], ["Summary", "summary"], ["Steps / evidence", "steps"], ["Severity", "severity"], ["Test ref", "ref"], ["Status", "status"], ["Raised with B4 (date)", "raised"], ["Fix version", "fix"], ["Retest date", "retestDate"], ["Retest result", "retestResult"], ["Deleted (reason)", "deleted"]],
     questions: [["#", "n"], ["Question", "q"], ["Answer", "a"], ["Tests affected", "tests"], ["Status", "status"]]
@@ -366,7 +420,7 @@
     var wb = XLSX.utils.book_new();
     Object.keys(SHEETS).forEach(function (k) {
       var rows = [COLS[k].map(function (c) { return c[0]; })];
-      state[k].forEach(function (r) { rows.push(COLS[k].map(function (c) { return c[1] === "deleted" ? delText(r.deleted) : (r[c[1]] || ""); })); });
+      state[k].forEach(function (r) { rows.push(COLS[k].map(function (c) { return c[1] === "deleted" ? delText(r.deleted) : Array.isArray(r[c[1]]) ? r[c[1]].join(", ") : (r[c[1]] || ""); })); });
       var ws = XLSX.utils.aoa_to_sheet(rows);
       ws["!cols"] = COLS[k].map(function (c) { return { wch: Math.min(60, Math.max(8, c[0].length + 2)) }; });
       XLSX.utils.book_append_sheet(wb, ws, SHEETS[k]);
@@ -730,6 +784,10 @@
     else if (a === "def-del-no") { ui.delAsk = null; render(); }
     else if (a === "def-del-yes") deleteDefect(t.getAttribute("data-id"));
     else if (a === "def-restore") restoreDefect(t.getAttribute("data-id"));
+    else if (a === "unblock") unlinkBlock(t.getAttribute("data-id"), t.getAttribute("data-def"));
+    else if (a === "set-blocked") setField("tests", t.getAttribute("data-id"), "status", "Blocked", "result");
+    else if (a === "goto-defect") goTo("defects", t.getAttribute("data-id"));
+    else if (a === "goto-test") goTo("tests", t.getAttribute("data-id"));
     else if (a === "shot-open") openShot(t.getAttribute("data-shot"));
     else if (a === "shot-del") { ui.shotDel = t.getAttribute("data-shot"); render(); }
     else if (a === "shot-del-no") { ui.shotDel = null; render(); }
@@ -751,6 +809,7 @@
     if (el.id === "imp" && el.files && el.files[0]) { importFile(el.files[0]); el.value = ""; return; }
     if (el.id === "doc-up" && el.files && el.files.length) { uploadDocs(el.files); el.value = ""; return; }
     if (el.dataset && el.dataset.shotUp && el.files && el.files.length) { addShots(el.dataset.shotUp, el.files); el.value = ""; return; }
+    if (el.dataset && el.dataset.block) { linkBlock(el.dataset.block, el.value); return; }
     if (el.id === "f-area") { ui.area = el.value; render(); return; }
     if (el.id === "f-status") { ui.status = el.value; render(); return; }
     if (el.id === "f-dstatus") { ui.dstatus = el.value; render(); return; }
