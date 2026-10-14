@@ -1,6 +1,6 @@
 (function () {
   "use strict";
-  var TITLE = "ISRA Testing Hub";
+  var TITLE = "Testing Hub";
   var OFFLINE_RESET = ":root{color-scheme:light}body{margin:0}img{max-width:100%}[hidden]{display:none!important}";
   var STATUSES = ["Not run", "Pass", "Partial pass", "Fail", "Blocked"];
   var DSTATUS = ["Open", "To confirm", "Retest", "Raised with B4", "Fixed", "Closed"];
@@ -178,7 +178,7 @@
       '<div id="root"></div><script type="application/json" id="data">' + data + '<\/script><script id="lib">' + safe(lib) + '<\/script><script id="app">' + safe(app) + "<\/script></body></html>";
   }
   function offlineCopy() {
-    var name = "ISRA-Testing-Hub-" + now().slice(0, 10) + ".html";
+    var name = "Testing-Hub-" + now().slice(0, 10) + ".html";
     var n = clone(state); n.rev = (base && base.rev || 0) + 1; n.updated = now();
     if (!hosted) {
       saveFile(name, docHtml(n, $("#css").textContent, $("#lib") ? $("#lib").textContent : "", $("#app").textContent), "text/html");
@@ -366,7 +366,7 @@
       XLSX.utils.book_append_sheet(wb, ws, SHEETS[k]);
     });
     var out = XLSX.write(wb, { bookType: "xlsx", type: "array" });
-    saveFile("ISRA-Testing-Hub-" + now().slice(0, 10) + ".xlsx", new Blob([out], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" }), "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+    saveFile("Testing-Hub-" + now().slice(0, 10) + ".xlsx", new Blob([out], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" }), "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
   }
 
   function readSheet(ws, k) {
