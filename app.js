@@ -32,7 +32,7 @@
   var recovering = /type=recovery/.test(location.hash || "");
   var state = { project: "ISRA scoring engine UAT", tests: [], parties: [], defects: [], questions: [], docs: [], log: [] };
   var base = null;
-  var ui = { tab: "overview", q: "", area: "", status: "", dq: "", dstatus: "", notice: null, importDiff: null, readOnly: false, auth: "signin" };
+  var ui = { tab: "overview", q: "", area: "", status: "", dq: "", dstatus: "", dsort: "", notice: null, importDiff: null, readOnly: false, auth: "signin" };
   try { var t0 = (location.hash || "").replace("#", ""); if (["overview", "tests", "defects", "parties", "questions", "documents"].indexOf(t0) >= 0) ui.tab = t0; } catch (e) {}
   var dirty = 0;
 
@@ -340,8 +340,9 @@
       if (q && (d.id + " " + d.summary + " " + d.area + " " + d.ref).toLowerCase().indexOf(q) < 0) return false;
       return true;
     });
+    if (ui.dsort === "area") L.sort(function (a, b) { return String(a.area || "").localeCompare(String(b.area || ""), undefined, { sensitivity: "base" }) || num(a.id) - num(b.id); });
     var nextId = nextDefectId();
-    var html = '<div class="filters"><input type="search" id="f-dq" placeholder="Search defects" value="' + esc(ui.dq) + '"><select id="f-dstatus"><option value="">All defects</option><option value="open"' + (ui.dstatus === "open" ? " selected" : "") + ">Open only</option>" + DSTATUS.map(function (s) { return "<option" + (s === ui.dstatus ? " selected" : "") + ">" + esc(s) + "</option>"; }).join("") + '<option value="deleted"' + (ui.dstatus === "deleted" ? " selected" : "") + ">Deleted (" + state.defects.filter(function (d) { return !live(d); }).length + ")</option>" + '</select><span class="count">' + L.length + " shown</span></div>";
+    var html = '<div class="filters"><input type="search" id="f-dq" placeholder="Search defects" value="' + esc(ui.dq) + '"><select id="f-dstatus"><option value="">All defects</option><option value="open"' + (ui.dstatus === "open" ? " selected" : "") + ">Open only</option>" + DSTATUS.map(function (s) { return "<option" + (s === ui.dstatus ? " selected" : "") + ">" + esc(s) + "</option>"; }).join("") + '<option value="deleted"' + (ui.dstatus === "deleted" ? " selected" : "") + ">Deleted (" + state.defects.filter(function (d) { return !live(d); }).length + ")</option>" + '</select><select id="f-dsort" aria-label="Sort defects"><option value="">Sort by ID</option><option value="area"' + (ui.dsort === "area" ? " selected" : "") + ">Sort by area</option></select>" + '<span class="count">' + L.length + " shown</span></div>";
     if (!ui.readOnly) html += '<form class="add" id="add-defect"><div class="eyebrow">New defect · ' + nextId + '</div><div class="row3"><div class="field"><label for="nd-area">Area</label><input type="text" id="nd-area" required placeholder="e.g. Rules"></div><div class="field"><label for="nd-sev">Severity</label><select id="nd-sev">' + SEV.map(function (s) { return "<option" + (s === "Medium" ? " selected" : "") + ">" + s + "</option>"; }).join("") + '</select></div><div class="field"><label for="nd-ref">Test ref</label><input type="text" id="nd-ref" placeholder="e.g. RUL-01"></div></div><div class="field"><label for="nd-sum">What goes wrong</label><textarea id="nd-sum" required></textarea></div><div class="field"><label for="nd-steps">Steps / evidence</label><input type="text" id="nd-steps"></div><div><button class="btn primary" type="submit">Add defect</button></div></form>';
     html += '<div class="list">' + L.map(function (d) {
       return '<details class="item" data-id="' + esc(d.id) + '"' + (ui.open === d.id ? " open" : "") + '><summary><span class="mono">' + esc(d.id) + '</span><span class="obj">' + esc(d.summary) + "<small>" + esc(d.area) + (d.ref ? " · " + esc(d.ref) : "") + " · " + esc(d.date) + (d.shots && d.shots.length ? " · " + d.shots.length + " screenshot" + (d.shots.length === 1 ? "" : "s") : "") + (blockedTests(d.id).length ? " · blocks " + blockedTests(d.id).length + " test" + (blockedTests(d.id).length === 1 ? "" : "s") : "") + "</small></span>" + '<span class="pills">' + dstatusPill(d) + sevPill(d.severity) + "</span></summary>" +
@@ -813,6 +814,7 @@
     if (el.id === "f-area") { ui.area = el.value; render(); return; }
     if (el.id === "f-status") { ui.status = el.value; render(); return; }
     if (el.id === "f-dstatus") { ui.dstatus = el.value; render(); return; }
+    if (el.id === "f-dsort") { ui.dsort = el.value; render(); return; }
     if (el.id === "f-ptype") { ui.ptype = el.value; render(); return; }
     if (el.id === "f-prec") { ui.precorded = el.value; render(); return; }
     if (el.dataset && el.dataset.k) setField(el.dataset.k, el.dataset.id, el.dataset.f, el.value, el.dataset.l);
