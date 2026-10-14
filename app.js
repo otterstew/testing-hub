@@ -284,8 +284,8 @@
     var html = '<div class="filters"><input type="search" id="f-dq" placeholder="Search defects" value="' + esc(ui.dq) + '"><select id="f-dstatus"><option value="">All defects</option><option value="open"' + (ui.dstatus === "open" ? " selected" : "") + ">Open only</option>" + DSTATUS.map(function (s) { return "<option" + (s === ui.dstatus ? " selected" : "") + ">" + esc(s) + "</option>"; }).join("") + '<option value="deleted"' + (ui.dstatus === "deleted" ? " selected" : "") + ">Deleted (" + state.defects.filter(function (d) { return !live(d); }).length + ")</option>" + '</select><span class="count">' + L.length + " shown</span></div>";
     if (!ui.readOnly) html += '<form class="add" id="add-defect"><div class="eyebrow">New defect · ' + nextId + '</div><div class="row3"><div class="field"><label for="nd-area">Area</label><input type="text" id="nd-area" required placeholder="e.g. Rules"></div><div class="field"><label for="nd-sev">Severity</label><select id="nd-sev">' + SEV.map(function (s) { return "<option" + (s === "Medium" ? " selected" : "") + ">" + s + "</option>"; }).join("") + '</select></div><div class="field"><label for="nd-ref">Test ref</label><input type="text" id="nd-ref" placeholder="e.g. RUL-01"></div></div><div class="field"><label for="nd-sum">What goes wrong</label><textarea id="nd-sum" required></textarea></div><div class="field"><label for="nd-steps">Steps / evidence</label><input type="text" id="nd-steps"></div><div><button class="btn primary" type="submit">Add defect</button></div></form>';
     html += '<div class="list">' + L.map(function (d) {
-      return '<details class="item" data-id="' + esc(d.id) + '"' + (ui.open === d.id ? " open" : "") + '><summary><span class="mono">' + esc(d.id) + '</span><span class="obj">' + esc(d.summary) + "<small>" + esc(d.area) + (d.ref ? " · " + esc(d.ref) : "") + " · " + esc(d.date) + "</small></span>" + sevPill(d.severity) + "</summary>" +
-        '<div class="body"><div class="field" style="gap:10px"><div class="field"><span class="lab">Steps / evidence</span><div class="txt">' + esc(d.steps || "–") + "</div></div>" +
+      return '<details class="item" data-id="' + esc(d.id) + '"' + (ui.open === d.id ? " open" : "") + '><summary><span class="mono">' + esc(d.id) + '</span><span class="obj">' + esc(d.summary) + "<small>" + esc(d.area) + (d.ref ? " · " + esc(d.ref) : "") + " · " + esc(d.date) + (d.shots && d.shots.length ? " · " + d.shots.length + " screenshot" + (d.shots.length === 1 ? "" : "s") : "") + "</small></span>" + sevPill(d.severity) + "</summary>" +
+        '<div class="body"><div class="field" style="gap:10px"><div class="field"><span class="lab">Steps / evidence</span><div class="txt">' + esc(d.steps || "–") + "</div></div>" + shotsHtml(d) +
         '<div class="field"><label for="dsum-' + esc(d.id) + '">Summary</label><textarea id="dsum-' + esc(d.id) + '" data-k="defects" data-f="summary" data-l="summary" data-id="' + esc(d.id) + '"' + (ui.readOnly ? " disabled" : "") + ">" + esc(d.summary) + "</textarea></div></div>" +
         '<div class="edit"><div class="row2"><div class="field"><label for="ds-' + esc(d.id) + '">Status</label><select id="ds-' + esc(d.id) + '" data-k="defects" data-f="status" data-l="status" data-id="' + esc(d.id) + '"' + (ui.readOnly ? " disabled" : "") + ">" + (DSTATUS.indexOf(d.status) < 0 ? "<option selected>" + esc(d.status) + "</option>" : "") + DSTATUS.map(function (s) { return "<option" + (s === d.status ? " selected" : "") + ">" + esc(s) + "</option>"; }).join("") + "</select></div>" +
         '<div class="field"><label for="dv-' + esc(d.id) + '">Severity</label><select id="dv-' + esc(d.id) + '" data-k="defects" data-f="severity" data-l="severity" data-id="' + esc(d.id) + '"' + (ui.readOnly ? " disabled" : "") + ">" + SEV.map(function (s) { return "<option" + (s === d.severity ? " selected" : "") + ">" + s + "</option>"; }).join("") + "</select></div></div>" +
@@ -446,6 +446,102 @@
 
   function notify(kind, text) { ui.notice = { kind: kind, text: text }; render(); }
 
+  // ---------- defect screenshots ----------
+  // Each defect carries shots: [{ id, name, path, size, type, added, by }]. The
+  // images sit in the same private bucket as the documents, under
+  // defects/<defect id>/, and are fetched with the signed-in session, so a
+  // thumbnail is a blob: URL (the page's CSP allows blob: and data: images only).
+  var shotUrl = {}, shotLoading = {};
+  function canShoot(d) { return hosted && mode === "online" && !ui.readOnly && live(d); }
+  function shotsHtml(d) {
+    var S = d.shots || [], can = canShoot(d);
+    if (!S.length && !can) return "";
+    var h = '<div class="field"><span class="lab">Screenshots' + (S.length ? " · " + S.length : "") + "</span>";
+    if (S.length) h += '<div class="shots">' + S.map(function (x) {
+      var del = !can ? "" : ui.shotDel === x.id
+        ? '<div class="shot-ask"><button class="btn danger" data-act="shot-del-yes" data-id="' + esc(d.id) + '" data-shot="' + esc(x.id) + '">Delete</button><button class="btn" data-act="shot-del-no">Keep</button></div>'
+        : '<button class="shot-x" data-act="shot-del" data-shot="' + esc(x.id) + '" title="Remove this screenshot" aria-label="Remove ' + esc(x.name) + '">×</button>';
+      return '<figure class="shot">' + (hosted
+        ? '<button class="shot-img" data-act="shot-open" data-id="' + esc(d.id) + '" data-shot="' + esc(x.id) + '" title="Open full size"><img alt="' + esc(x.name) + '" data-shot-img="' + esc(x.id) + '"' + (shotUrl[x.id] ? ' src="' + shotUrl[x.id] + '"' : "") + "></button>"
+        : '<div class="shot-img off">' + esc(x.name) + "</div>") +
+        "<figcaption>" + esc(fmt(x.added)) + "</figcaption>" + del + "</figure>";
+    }).join("") + "</div>";
+    if (can) h += '<div class="shot-add"><label class="btn" for="shot-up-' + esc(d.id) + '">' + (ui.shotBusy === d.id ? "Uploading…" : "Add screenshots") + '</label><input type="file" id="shot-up-' + esc(d.id) + '" data-shot-up="' + esc(d.id) + '" accept="image/*" multiple hidden><span class="count">or paste one (Ctrl+V / ⌘V) while this defect is open</span></div>';
+    else if (!hosted && S.length) h += '<p class="count">Open the online hub to see them.</p>';
+    return h + "</div>";
+  }
+  function findShot(id) {
+    for (var i = 0; i < state.defects.length; i++) { var S = state.defects[i].shots || []; for (var j = 0; j < S.length; j++) if (S[j].id === id) return S[j]; }
+    return null;
+  }
+  // Thumbnails load only for the defect that is open.
+  function loadThumbs() {
+    if (!sb) return;
+    Array.prototype.forEach.call(document.querySelectorAll("details.item[open] img[data-shot-img]:not([src])"), function (img) {
+      var id = img.getAttribute("data-shot-img"), x = findShot(id);
+      if (!x || shotLoading[id]) return;
+      shotLoading[id] = true;
+      sb.storage.from(BUCKET).download(x.path).then(function (r) {
+        if (r.error) throw r.error;
+        shotUrl[id] = URL.createObjectURL(r.data);
+        Array.prototype.forEach.call(document.querySelectorAll('img[data-shot-img="' + id + '"]'), function (el) { el.src = shotUrl[id]; });
+      }).catch(function () { img.alt = x.name + " (couldn’t load)"; }).then(function () { delete shotLoading[id]; });
+    });
+  }
+  var IMG_EXT = { "image/png": "png", "image/jpeg": "jpg", "image/gif": "gif", "image/webp": "webp", "image/bmp": "bmp" };
+  function addShots(id, files) {
+    var list = Array.prototype.filter.call(files, function (f) { return /^image\//.test(f.type); });
+    if (!find(state.defects, id) || !sb) return;
+    if (!list.length) { notify("err", "Only images can be added as screenshots."); return; }
+    var added = [], problems = [];
+    ui.shotBusy = id; ui.open = id; render();
+    var next = function () {
+      if (!list.length) {
+        ui.shotBusy = null;
+        // Merge into the defect as it is now: a refresh may have replaced it meanwhile.
+        var d = find(state.defects, id);
+        if (d && added.length) {
+          d.shots = (d.shots || []).concat(added);
+          addLog(id + ": " + (added.length === 1 ? "screenshot added (" + added[0].name + ")" : added.length + " screenshots added"));
+          persistDefect(d);
+        }
+        if (problems.length) notify(added.length ? "warn" : "err", problems.join(" ")); else render();
+        return;
+      }
+      var f = list.shift(), sid = newId();
+      // A pasted image arrives as "image.png"; give it a dated name instead.
+      var name = f.name && !/^image\.(png|jpe?g|gif|webp|bmp)$/i.test(f.name) ? f.name : "Screenshot " + now().replace("T", " ").replace(/:/g, ".") + "." + (IMG_EXT[f.type] || "png");
+      if (f.size > 52428800) { problems.push(name + ": over the 50 MB limit."); return next(); }
+      var path = "defects/" + id.replace(/[^\w-]+/g, "_") + "/" + sid + "-" + name.replace(/[^\w.\- ]+/g, "_");
+      sb.storage.from(BUCKET).upload(path, f, { contentType: f.type, upsert: false }).then(function (r) {
+        if (r.error) throw r.error;
+        added.push({ id: sid, name: name, path: path, size: f.size, type: f.type, added: now(), by: (user && user.email) || "" });
+        shotUrl[sid] = URL.createObjectURL(f);
+        next();
+      }).catch(function (err) { problems.push(name + ": upload failed (" + ((err && err.message) || "error") + ")."); next(); });
+    };
+    next();
+  }
+  function deleteShot(id, sid) {
+    var d = find(state.defects, id), x = d && (d.shots || []).filter(function (s) { return s.id === sid; })[0];
+    if (!x) return;
+    sb.storage.from(BUCKET).remove([x.path]).then(function (r) {
+      if (r.error) throw r.error;
+      var cur = find(state.defects, id) || d;
+      cur.shots = (cur.shots || []).filter(function (s) { return s.id !== sid; });
+      addLog(id + ": screenshot removed (" + x.name + ")");
+      persistDefect(cur); ui.shotDel = null; render();
+    }).catch(function (e) { ui.shotDel = null; notify("err", "Couldn’t remove " + x.name + " (" + ((e && e.message) || "error") + ")."); });
+  }
+  function openShot(sid) {
+    var x = findShot(sid); if (!x) return;
+    var w = window.open("", "_blank");
+    sb.storage.from(BUCKET).createSignedUrl(x.path, 600).then(function (r) {
+      if (r.error) throw r.error;
+      if (w) { w.opener = null; w.location.href = r.data.signedUrl; } else location.href = r.data.signedUrl;
+    }).catch(function (e) { if (w) w.close(); notify("err", "Couldn’t open " + x.name + " (" + ((e && e.message) || "error") + ")."); });
+  }
+
   // ---------- documents ----------
   function vDocuments() {
     var canUp = hosted && mode === "online";
@@ -593,6 +689,7 @@
       tabs.map(function (t) { return '<button class="tab" role="tab" data-tab="' + t[0] + '" aria-selected="' + (ui.tab === t[0]) + '">' + t[1] + (t[2] !== "" ? '<span class="n">' + esc(t[2]) + "</span>" : "") + "</button>"; }).join("") + "</nav></header>" +
       '<main class="wrap">' + vNotice() + (ui.tab === "tests" ? vTests() : ui.tab === "defects" ? vDefects() : ui.tab === "parties" ? vParties() : ui.tab === "questions" ? vQuestions() : ui.tab === "documents" ? vDocuments() : vOverview()) + "</main>";
     if (focusId) { var f = document.getElementById(focusId); if (f) { f.focus(); try { if (selStart != null && f.setSelectionRange) f.setSelectionRange(selStart, selStart); } catch (e) {} } }
+    loadThumbs();
   }
 
   function signOut() {
@@ -627,11 +724,27 @@
     else if (a === "def-del-no") { ui.delAsk = null; render(); }
     else if (a === "def-del-yes") deleteDefect(t.getAttribute("data-id"));
     else if (a === "def-restore") restoreDefect(t.getAttribute("data-id"));
+    else if (a === "shot-open") openShot(t.getAttribute("data-shot"));
+    else if (a === "shot-del") { ui.shotDel = t.getAttribute("data-shot"); render(); }
+    else if (a === "shot-del-no") { ui.shotDel = null; render(); }
+    else if (a === "shot-del-yes") deleteShot(t.getAttribute("data-id"), t.getAttribute("data-shot"));
+  });
+  // Opening a defect loads its thumbnails.
+  document.addEventListener("toggle", function (e) { if (e.target.matches && e.target.matches("details.item[open]")) loadThumbs(); }, true);
+  // Pasting an image while a defect is open adds it as a screenshot.
+  document.addEventListener("paste", function (e) {
+    if (ui.tab !== "defects") return;
+    var openEl = document.querySelector("details.item[open]"), id = openEl && openEl.getAttribute("data-id"), d = id && find(state.defects, id);
+    if (!d || !canShoot(d)) return;
+    var files = Array.prototype.slice.call((e.clipboardData && e.clipboardData.files) || []).filter(function (f) { return /^image\//.test(f.type); });
+    if (!files.length) return;
+    e.preventDefault(); addShots(id, files);
   });
   document.addEventListener("change", function (e) {
     var el = e.target;
     if (el.id === "imp" && el.files && el.files[0]) { importFile(el.files[0]); el.value = ""; return; }
     if (el.id === "doc-up" && el.files && el.files.length) { uploadDocs(el.files); el.value = ""; return; }
+    if (el.dataset && el.dataset.shotUp && el.files && el.files.length) { addShots(el.dataset.shotUp, el.files); el.value = ""; return; }
     if (el.id === "f-area") { ui.area = el.value; render(); return; }
     if (el.id === "f-status") { ui.status = el.value; render(); return; }
     if (el.id === "f-dstatus") { ui.dstatus = el.value; render(); return; }
@@ -656,7 +769,10 @@
     state.defects.push(rec);
     addLog(id + " added: " + sum.slice(0, 80));
     if (hosted) queue("defect", rec); else { dirty++; saveDraft(); }
-    ui.notice = { kind: "", text: id + " added." }; render();
+    // Open the new defect (render keeps whichever one is open in the page, so close that first).
+    Array.prototype.forEach.call(document.querySelectorAll("details.item[open]"), function (el) { el.open = false; });
+    ui.open = id;
+    ui.notice = { kind: "", text: id + " added." + (hosted ? " Paste or add screenshots in it below." : "") }; render();
   });
   document.addEventListener("keydown", function (e) {
     if ((e.ctrlKey || e.metaKey) && e.key === "s") { e.preventDefault(); if (hosted) { retryMs = 0; schedule(0); } else offlineCopy(); }
