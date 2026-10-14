@@ -114,7 +114,20 @@ const PNG = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAYAAABytg0kAAAAFElEQVR
 
   await page.goto(BASE + '#defects');
   await page.waitForSelector('details.item[data-id="D-01"]');
+  // --- the row shows status, then severity ---
+  const pills = () => page.locator('details.item[data-id="D-01"] > summary .pills .pill').allInnerTexts();
+  check('the defect row shows status left of severity', JSON.stringify(await pills()) === '["Open","High"]', await pills());
   await page.click('details.item[data-id="D-01"] summary');
+  await page.selectOption('#ds-D-01', 'Fixed');
+  await page.waitForFunction(() => /Fixed/.test(document.querySelector('details.item[data-id="D-01"] > summary .pills').textContent));
+  check('changing the status updates the row', JSON.stringify(await pills()) === '["Fixed","High"]', await pills());
+  check('…coloured as done', await page.locator('details.item[data-id="D-01"] > summary .pills .pill').first().evaluate(e => e.classList.contains('s-pass')));
+  await page.setViewportSize({ width: 390, height: 844 });
+  const fits = await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth);
+  check('both fit on a phone without sideways scrolling', fits);
+  await page.setViewportSize({ width: 1100, height: 900 });
+  await page.selectOption('#ds-D-01', 'Open');
+  await page.waitForFunction(() => /Open/.test(document.querySelector('details.item[data-id="D-01"] > summary .pills').textContent));
 
   check('an open defect offers Add screenshots', await page.locator('[data-shot-up="D-01"]').count() === 1);
   check('…and says a paste works too', /paste one/.test(await page.locator('details.item[data-id="D-01"] .shot-add').innerText()));

@@ -133,7 +133,9 @@ details.item[open] > summary { border-bottom: 1px solid var(--line); }
 .item .obj { min-width: 0; }
 .item .obj small { display: block; color: var(--muted); font-size: 12px; }
 .body { padding: 12px; display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 14px; }
-@media (max-width: 760px) { .body { grid-template-columns: minmax(0, 1fr); } details.item > summary { grid-template-columns: 64px minmax(0, 1fr); } details.item > summary .pill { grid-column: 2; justify-self: start; } }
+@media (max-width: 760px) { .body { grid-template-columns: minmax(0, 1fr); } details.item > summary { grid-template-columns: 64px minmax(0, 1fr); } details.item > summary .pill, details.item > summary .pills { grid-column: 2; justify-self: start; } }
+/* Defect rows: status, then severity, side by side. */
+.pills { display: inline-flex; gap: 6px; align-items: baseline; flex-wrap: wrap; justify-content: flex-end; }
 .field { display: grid; gap: 4px; min-width: 0; }
 .field label, .field .lab { font-size: 12px; color: var(--muted); }
 .field .txt { white-space: pre-wrap; overflow-wrap: anywhere; }
