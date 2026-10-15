@@ -322,7 +322,7 @@
   function defectTail(d) {
     var h = "";
     if (!live(d)) h += '<div class="delbox"><p><b>Deleted</b> ' + esc(delText(d.deleted)) + '</p><button class="btn" data-act="def-restore" data-id="' + esc(d.id) + '">Restore</button></div>';
-    else if (ui.delAsk === d.id) h += '<div class="delbox"><div class="field"><label for="dr-why-' + esc(d.id) + '">Why delete ' + esc(d.id) + '? (kept in the activity log)</label><textarea id="dr-why-' + esc(d.id) + '" placeholder="e.g. Not a defect: Ogier setting, not functionality"></textarea></div>' +
+    else if (ui.delAsk === d.id) h += '<div class="delbox"><div class="field"><label for="dr-why-' + esc(d.id) + '">Why delete ' + esc(d.id) + '? (kept in the activity log)</label><textarea id="dr-why-' + esc(d.id) + '" placeholder="e.g. Not a defect: company setting, not functionality"></textarea></div>' +
       '<div class="actions"><button class="btn danger" data-act="def-del-yes" data-id="' + esc(d.id) + '">Delete defect</button><button class="btn" data-act="def-del-no">Cancel</button></div></div>';
     else h += '<div><button class="btn" data-act="def-del" data-id="' + esc(d.id) + '">Delete…</button></div>';
     var hist = historyFor(d.id);
