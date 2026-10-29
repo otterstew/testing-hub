@@ -33,7 +33,13 @@
   var state = { project: "ISRA scoring engine UAT", tests: [], parties: [], defects: [], questions: [], docs: [], log: [] };
   var base = null;
   var ui = { tab: "overview", q: "", area: "", status: "", dq: "", dstatus: "", notice: null, importDiff: null, readOnly: false, auth: "signin" };
-  try { var t0 = (location.hash || "").replace("#", ""); if (["overview", "tests", "defects", "parties", "questions", "documents"].indexOf(t0) >= 0) ui.tab = t0; } catch (e) {}
+  // #tests opens a tab; #tests/RUL-01 also opens that item in it (once the data is in).
+  var TABS = ["overview", "tests", "defects", "parties", "questions", "documents"];
+  function readHash() {
+    try { var h = decodeURIComponent((location.hash || "").replace("#", "")), tab = h.split("/")[0]; } catch (e) { return null; }
+    return TABS.indexOf(tab) >= 0 ? { tab: tab, id: h.slice(tab.length + 1) } : null;
+  }
+  var h0 = readHash(); if (h0) { ui.tab = h0.tab; ui.go = h0.id; }
   var dirty = 0;
 
   // ---------- offline copy: data travels inside the file ----------
@@ -208,6 +214,68 @@
   function historyFor(id) { return state.log.filter(function (l) { var t = String(l.text || ""); return t.indexOf(id + ":") === 0 || t.indexOf(id + " ") === 0; }).slice(0, 30); }
   function qOpen(q) { return !/^answered$/i.test(q.status || "") && !/^answered[:\s]/i.test(q.status || ""); }
 
+  // ---------- cross-references ----------
+  // Any test, defect, party or question ID written in a text field links to that item, and each
+  // item lists the others that mention it. IDs are matched against the items that exist, so no
+  // ID format is assumed. Rebuilt on every render.
+  var REF_FIELDS = {
+    tests: ["ref", "objective", "pre", "steps", "data", "expected", "actual", "comments"],
+    defects: ["summary", "steps", "ref", "retestResult"],
+    parties: ["purpose", "values", "related", "tests"],
+    questions: ["q", "a", "tests", "status"]
+  };
+  var refs = { item: {}, re: null, by: {} };
+  function qid(q) { return "Q" + q.n; }
+  function itemId(tab, r) { return tab === "questions" ? qid(r) : r.id; }
+  function buildRefs() {
+    var item = {}, by = {};
+    Object.keys(REF_FIELDS).forEach(function (tab) {
+      (state[tab] || []).forEach(function (r) {
+        var id = itemId(tab, r);
+        // A bare number would match every count and date in the text.
+        if (id && /[A-Za-z]/.test(id) && /\d/.test(id) && !item[id]) item[id] = { tab: tab, rec: r };
+      });
+    });
+    var ids = Object.keys(item).sort(function (a, b) { return b.length - a.length; });
+    var re = ids.length ? new RegExp("(^|[^A-Za-z0-9_-])(" + ids.map(function (s) { return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"); }).join("|") + ")(?![A-Za-z0-9_-])", "g") : null;
+    if (re) Object.keys(REF_FIELDS).forEach(function (tab) {
+      (state[tab] || []).forEach(function (r) {
+        var from = itemId(tab, r), seen = {};
+        REF_FIELDS[tab].forEach(function (f) {
+          String(r[f] == null ? "" : r[f]).replace(re, function (m, pre, id) {
+            if (id !== from && !seen[id]) { seen[id] = 1; (by[id] = by[id] || []).push({ tab: tab, id: from, rec: r }); }
+            return m;
+          });
+        });
+      });
+    });
+    refs = { item: item, re: re, by: by };
+  }
+  // Plain links to #tab/id, so Back returns to where you were and they open in a new tab too.
+  function href(tab, id) { return "#" + tab + "/" + encodeURIComponent(id); }
+  function idLink(tab, id, cls) { return '<a class="ref' + (cls ? " " + cls : "") + '" href="' + esc(href(tab, id)) + '">' + esc(id) + "</a>"; }
+  // Escapes text and links the IDs in it (not self, the item the text belongs to).
+  function linked(text, self) {
+    var h = esc(text);
+    if (!refs.re) return h;
+    return h.replace(refs.re, function (m, pre, id) {
+      var it = refs.item[id];
+      return it && id !== self ? pre + idLink(it.tab, id) : m;
+    });
+  }
+  function refLabel(tab, r) { return tab === "tests" ? r.objective : tab === "defects" ? r.summary : tab === "parties" ? r.name : r.q; }
+  function refPill(tab, r) { return tab === "tests" ? pill(r.status) : tab === "defects" ? dstatusPill(r) : tab === "questions" ? '<span class="pill ' + (qOpen(r) ? "s-partial" : "s-pass") + '">' + esc(r.status || "Open") + "</span>" : ""; }
+  // The items whose text mentions this one, less any already shown by a direct link.
+  function referencedByHtml(id, skip) {
+    var L = (refs.by[id] || []).filter(function (x) { return !skip || skip.indexOf(x.id) < 0; });
+    if (!L.length) return "";
+    var order = ["tests", "defects", "parties", "questions"];
+    L = L.slice().sort(function (a, b) { return order.indexOf(a.tab) - order.indexOf(b.tab); });
+    return '<div class="field"><span class="lab">Referenced by · ' + L.length + '</span><div class="blk">' + L.map(function (x) {
+      return '<span class="blk-chip"><a class="blk-go" href="' + esc(href(x.tab, x.id)) + '"><b class="mono">' + esc(x.id) + "</b> " + esc(refLabel(x.tab, x.rec)) + "</a>" + refPill(x.tab, x.rec) + "</span>";
+    }).join("") + "</div></div>";
+  }
+
   function vOverview() {
     var T = state.tests, c = counts(T), total = T.length, done = total - c["Not run"];
     var secs = []; T.forEach(function (t) { if (secs.indexOf(t.section) < 0) secs.push(t.section); });
@@ -230,11 +298,11 @@
       "<h2>By area<small>run / total, then the split by result</small></h2>" +
       '<div class="tablewrap"><table><thead><tr><th>Area</th><th>Run</th><th>Results</th><th>Pass</th><th>Fail</th><th>Blocked</th></tr></thead><tbody>' + rows + "</tbody></table></div>" +
       '<div class="cols"><div><h2>Needs attention<small>' + (attTests.length + high.length) + "</small></h2>" +
-      ((attTests.length + high.length) ? '<ul class="att">' + attTests.map(function (t) { return '<li class="sev-High"><span class="mono">' + esc(t.id) + "</span><p>" + pill(t.status) + " " + esc(t.objective) + "</p></li>"; }).join("") +
-        high.map(function (d) { return '<li class="sev-High"><span class="mono">' + esc(d.id) + "</span><p>" + esc(d.summary) + "</p></li>"; }).join("") + "</ul>" : '<p class="empty">Nothing failing or blocked.</p>') +
-      "<h2>Next to run</h2>" + (next.length ? '<ul class="att">' + next.map(function (t) { return '<li><span class="mono">' + esc(t.id) + "</span><p>" + esc(t.objective) + "</p></li>"; }).join("") + "</ul>" : '<p class="empty">Every test has a result.</p>') +
-      "</div><div><h2>Open questions<small>" + oq.length + "</small></h2>" + (oq.length ? '<ul class="att">' + oq.map(function (q) { return '<li class="sev-Low"><span class="mono">Q' + esc(q.n) + "</span><p>" + esc(q.q) + "</p></li>"; }).join("") + "</ul>" : '<p class="empty">No open questions.</p>') +
-      "<h2>Activity</h2><ul class=\"log\">" + state.log.slice(0, 12).map(function (l) { return "<li><time>" + esc(fmt(l.at)) + "</time>" + esc(l.text) + "</li>"; }).join("") + "</ul></div></div>";
+      ((attTests.length + high.length) ? '<ul class="att">' + attTests.map(function (t) { return '<li class="sev-High">' + idLink("tests", t.id, "mono") + "<p>" + pill(t.status) + " " + esc(t.objective) + "</p></li>"; }).join("") +
+        high.map(function (d) { return '<li class="sev-High">' + idLink("defects", d.id, "mono") + "<p>" + esc(d.summary) + "</p></li>"; }).join("") + "</ul>" : '<p class="empty">Nothing failing or blocked.</p>') +
+      "<h2>Next to run</h2>" + (next.length ? '<ul class="att">' + next.map(function (t) { return '<li>' + idLink("tests", t.id, "mono") + "<p>" + esc(t.objective) + "</p></li>"; }).join("") + "</ul>" : '<p class="empty">Every test has a result.</p>') +
+      "</div><div><h2>Open questions<small>" + oq.length + "</small></h2>" + (oq.length ? '<ul class="att">' + oq.map(function (q) { return '<li class="sev-Low">' + idLink("questions", qid(q), "mono") + "<p>" + esc(q.q) + "</p></li>"; }).join("") + "</ul>" : '<p class="empty">No open questions.</p>') +
+      "<h2>Activity</h2><ul class=\"log\">" + state.log.slice(0, 12).map(function (l) { return "<li><time>" + esc(fmt(l.at)) + "</time>" + linked(l.text) + "</li>"; }).join("") + "</ul></div></div>";
   }
 
   function vTests() {
@@ -251,12 +319,12 @@
     var last = null;
     L.forEach(function (t) {
       if (short(t.section) !== last) { last = short(t.section); html += '<div class="sec">' + esc(last) + "</div>"; }
-      html += '<details class="item" data-id="' + esc(t.id) + '"' + (ui.open === t.id ? " open" : "") + '><summary><span class="mono">' + esc(t.id) + '</span><span class="obj">' + esc(t.objective) + "<small>" + [esc(t.ref), t.prev ? "before: " + esc(t.prev) : "", t.blockedBy && t.blockedBy.length ? "blocked by " + esc(t.blockedBy.join(", ")) : ""].filter(Boolean).join(" · ") + "</small></span>" + pill(t.status) + "</summary>" +
+      html += '<details class="item" data-id="' + esc(t.id) + '"' + (ui.open === t.id ? " open" : "") + '><summary><span class="mono">' + esc(t.id) + '</span><span class="obj">' + esc(t.objective) + "<small>" + [linked(t.ref, t.id), t.prev ? "before: " + esc(t.prev) : "", t.blockedBy && t.blockedBy.length ? "blocked by " + t.blockedBy.map(function (id) { return idLink("defects", id); }).join(", ") : ""].filter(Boolean).join(" · ") + "</small></span>" + pill(t.status) + "</summary>" +
         '<div class="body"><div class="field" style="gap:10px">' +
-        (t.pre ? '<div class="field"><span class="lab">Pre-conditions</span><div class="txt">' + esc(t.pre) + "</div></div>" : "") +
-        '<div class="field"><span class="lab">Steps</span><div class="txt">' + esc(t.steps) + "</div></div>" +
-        (t.data && t.data !== "–" ? '<div class="field"><span class="lab">Test data</span><div class="txt">' + esc(t.data) + "</div></div>" : "") +
-        '<div class="field"><span class="lab">Expected result</span><div class="txt">' + esc(t.expected) + "</div></div></div>" +
+        (t.pre ? '<div class="field"><span class="lab">Pre-conditions</span><div class="txt">' + linked(t.pre, t.id) + "</div></div>" : "") +
+        '<div class="field"><span class="lab">Steps</span><div class="txt">' + linked(t.steps, t.id) + "</div></div>" +
+        (t.data && t.data !== "–" ? '<div class="field"><span class="lab">Test data</span><div class="txt">' + linked(t.data, t.id) + "</div></div>" : "") +
+        '<div class="field"><span class="lab">Expected result</span><div class="txt">' + linked(t.expected, t.id) + "</div></div>" + referencedByHtml(t.id, t.blockedBy) + "</div>" +
         '<div class="edit"><div class="row2"><div class="field"><label for="st-' + esc(t.id) + '">Result</label><select id="st-' + esc(t.id) + '" data-k="tests" data-f="status" data-l="result" data-id="' + esc(t.id) + '"' + (ui.readOnly ? " disabled" : "") + ">" + STATUSES.map(function (s) { return "<option" + (s === (t.status || "Not run") ? " selected" : "") + ">" + esc(s) + "</option>"; }).join("") + "</select></div>" +
         '<div class="field"><label for="ev-' + esc(t.id) + '">Evidence</label><input type="text" id="ev-' + esc(t.id) + '" data-k="tests" data-f="evidence" data-l="evidence" data-id="' + esc(t.id) + '" value="' + esc(t.evidence) + '"' + (ui.readOnly ? " disabled" : "") + "></div></div>" +
         '<div class="field"><label for="ac-' + esc(t.id) + '">Actual result</label><textarea id="ac-' + esc(t.id) + '" data-k="tests" data-f="actual" data-l="actual result" data-id="' + esc(t.id) + '"' + (ui.readOnly ? " disabled" : "") + ">" + esc(t.actual) + "</textarea></div>" +
@@ -309,14 +377,26 @@
     addLog(tid + ": no longer blocked by " + did); addLog(did + ": no longer blocking " + tid);
     saveTest(t); ui.open = tid; render();
   }
-  // Jump to a test or defect and open it, clearing filters that would hide it.
+  // Jump to an item through the address, so Back comes back here.
   function goTo(tab, id) {
+    rememberPlace();
+    if (location.hash !== href(tab, id)) location.hash = href(tab, id); else showItem(tab, id);
+  }
+  // Before leaving, put the open item in the address so Back reopens it.
+  function rememberPlace() {
+    var o = document.querySelector("details.item[open][data-id]");
+    try { history.replaceState(null, "", o ? href(ui.tab, o.getAttribute("data-id")) : "#" + ui.tab); } catch (x) {}
+  }
+  function itemEl(id) { return Array.prototype.filter.call(document.querySelectorAll("details.item[data-id]"), function (el) { return el.getAttribute("data-id") === id; })[0]; }
+  // Open a test, defect, party or question, clearing filters that would hide it.
+  function showItem(tab, id) {
     Array.prototype.forEach.call(document.querySelectorAll("details.item[open]"), function (el) { el.open = false; });
-    ui.tab = tab; ui.open = id;
-    if (tab === "tests") { ui.q = ""; ui.area = ""; ui.status = ""; } else { ui.dq = ""; ui.dstatus = live(find(state.defects, id) || {}) ? "" : "deleted"; }
-    try { history.replaceState(null, "", "#" + tab); } catch (x) {}
+    ui.tab = tab; ui.open = id || null;
+    if (tab === "tests") { ui.q = ""; ui.area = ""; ui.status = ""; }
+    else if (tab === "defects") { ui.dq = ""; ui.dstatus = live(find(state.defects, id) || {}) ? "" : "deleted"; }
+    else if (tab === "parties") { ui.pq = ""; ui.ptype = ""; ui.precorded = ""; }
     render();
-    var el = document.querySelector('details.item[data-id="' + id + '"]'); if (el) el.scrollIntoView({ block: "start" });
+    var el = id && itemEl(id); if (el) el.scrollIntoView({ block: "start" }); else window.scrollTo(0, 0);
   }
 
   function defectTail(d) {
@@ -326,7 +406,7 @@
       '<div class="actions"><button class="btn danger" data-act="def-del-yes" data-id="' + esc(d.id) + '">Delete defect</button><button class="btn" data-act="def-del-no">Cancel</button></div></div>';
     else h += '<div><button class="btn" data-act="def-del" data-id="' + esc(d.id) + '">Delete…</button></div>';
     var hist = historyFor(d.id);
-    if (hist.length) h += '<div class="field"><span class="lab">History</span><ul class="log">' + hist.map(function (l) { return "<li><time>" + esc(fmt(l.at)) + "</time>" + esc(l.text) + "</li>"; }).join("") + "</ul></div>";
+    if (hist.length) h += '<div class="field"><span class="lab">History</span><ul class="log">' + hist.map(function (l) { return "<li><time>" + esc(fmt(l.at)) + "</time>" + linked(l.text, d.id) + "</li>"; }).join("") + "</ul></div>";
     return h;
   }
 
@@ -344,8 +424,8 @@
     var html = '<div class="filters"><input type="search" id="f-dq" placeholder="Search defects" value="' + esc(ui.dq) + '"><select id="f-dstatus"><option value="">All defects</option><option value="open"' + (ui.dstatus === "open" ? " selected" : "") + ">Open only</option>" + DSTATUS.map(function (s) { return "<option" + (s === ui.dstatus ? " selected" : "") + ">" + esc(s) + "</option>"; }).join("") + '<option value="deleted"' + (ui.dstatus === "deleted" ? " selected" : "") + ">Deleted (" + state.defects.filter(function (d) { return !live(d); }).length + ")</option>" + '</select><span class="count">' + L.length + " shown</span></div>";
     if (!ui.readOnly) html += '<form class="add" id="add-defect"><div class="eyebrow">New defect · ' + nextId + '</div><div class="row3"><div class="field"><label for="nd-area">Area</label><input type="text" id="nd-area" required placeholder="e.g. Rules"></div><div class="field"><label for="nd-sev">Severity</label><select id="nd-sev">' + SEV.map(function (s) { return "<option" + (s === "Medium" ? " selected" : "") + ">" + s + "</option>"; }).join("") + '</select></div><div class="field"><label for="nd-ref">Test ref</label><input type="text" id="nd-ref" placeholder="e.g. RUL-01"></div></div><div class="field"><label for="nd-sum">What goes wrong</label><textarea id="nd-sum" required></textarea></div><div class="field"><label for="nd-steps">Steps / evidence</label><input type="text" id="nd-steps"></div><div><button class="btn primary" type="submit">Add defect</button></div></form>';
     html += '<div class="list">' + L.map(function (d) {
-      return '<details class="item" data-id="' + esc(d.id) + '"' + (ui.open === d.id ? " open" : "") + '><summary><span class="mono">' + esc(d.id) + '</span><span class="obj">' + esc(d.summary) + "<small>" + esc(d.area) + (d.ref ? " · " + esc(d.ref) : "") + " · " + esc(d.date) + (d.shots && d.shots.length ? " · " + d.shots.length + " screenshot" + (d.shots.length === 1 ? "" : "s") : "") + (blockedTests(d.id).length ? " · blocks " + blockedTests(d.id).length + " test" + (blockedTests(d.id).length === 1 ? "" : "s") : "") + "</small></span>" + '<span class="pills">' + dstatusPill(d) + sevPill(d.severity) + "</span></summary>" +
-        '<div class="body"><div class="field" style="gap:10px"><div class="field"><span class="lab">Steps / evidence</span><div class="txt">' + esc(d.steps || "–") + "</div></div>" + shotsHtml(d) + blockingHtml(d) +
+      return '<details class="item" data-id="' + esc(d.id) + '"' + (ui.open === d.id ? " open" : "") + '><summary><span class="mono">' + esc(d.id) + '</span><span class="obj">' + esc(d.summary) + "<small>" + esc(d.area) + (d.ref ? " · " + linked(d.ref, d.id) : "") + " · " + esc(d.date) + (d.shots && d.shots.length ? " · " + d.shots.length + " screenshot" + (d.shots.length === 1 ? "" : "s") : "") + (blockedTests(d.id).length ? " · blocks " + blockedTests(d.id).length + " test" + (blockedTests(d.id).length === 1 ? "" : "s") : "") + "</small></span>" + '<span class="pills">' + dstatusPill(d) + sevPill(d.severity) + "</span></summary>" +
+        '<div class="body"><div class="field" style="gap:10px"><div class="field"><span class="lab">Steps / evidence</span><div class="txt">' + linked(d.steps || "–", d.id) + "</div></div>" + shotsHtml(d) + blockingHtml(d) + referencedByHtml(d.id, blockedTests(d.id).map(function (t) { return t.id; })) +
         '<div class="field"><label for="dsum-' + esc(d.id) + '">Summary</label><textarea id="dsum-' + esc(d.id) + '" data-k="defects" data-f="summary" data-l="summary" data-id="' + esc(d.id) + '"' + (ui.readOnly ? " disabled" : "") + ">" + esc(d.summary) + "</textarea></div></div>" +
         '<div class="edit"><div class="row2"><div class="field"><label for="ds-' + esc(d.id) + '">Status</label><select id="ds-' + esc(d.id) + '" data-k="defects" data-f="status" data-l="status" data-id="' + esc(d.id) + '"' + (ui.readOnly ? " disabled" : "") + ">" + (DSTATUS.indexOf(d.status) < 0 ? "<option selected>" + esc(d.status) + "</option>" : "") + DSTATUS.map(function (s) { return "<option" + (s === d.status ? " selected" : "") + ">" + esc(s) + "</option>"; }).join("") + "</select></div>" +
         '<div class="field"><label for="dv-' + esc(d.id) + '">Severity</label><select id="dv-' + esc(d.id) + '" data-k="defects" data-f="severity" data-l="severity" data-id="' + esc(d.id) + '"' + (ui.readOnly ? " disabled" : "") + ">" + SEV.map(function (s) { return "<option" + (s === d.severity ? " selected" : "") + ">" + s + "</option>"; }).join("") + "</select></div></div>" +
@@ -387,13 +467,13 @@
       var chip = match === null ? '<span class="pill s-notrun">Not recorded</span>' : match ? '<span class="pill s-pass">' + esc(p.recorded) + " · matches</span>" : '<span class="pill s-partial">' + esc(p.recorded) + " · check</span>";
       return '<details class="item" data-id="' + esc(p.id) + '"' + (ui.open === p.id ? " open" : "") + '><summary><span class="mono">' + esc(p.id) + '</span><span class="obj">' + esc(p.name) + "<small>" + esc(p.module + " · " + p.type) + " · expected now: " + esc(p.expectedNow) + "</small></span>" + chip + "</summary>" +
         '<div class="body"><div class="field" style="gap:10px">' +
-        '<div class="field"><span class="lab">Purpose</span><div class="txt">' + esc(p.purpose) + "</div></div>" +
-        '<div class="field"><span class="lab">Values to enter (everything else: control values)</span><div class="txt setv">' + esc(p.values || "All control values.") + "</div></div>" +
-        '<div class="field"><span class="lab">Related parties to add</span><div class="txt setv">' + esc(p.related || "None") + "</div></div></div>" +
+        '<div class="field"><span class="lab">Purpose</span><div class="txt">' + linked(p.purpose, p.id) + "</div></div>" +
+        '<div class="field"><span class="lab">Values to enter (everything else: control values)</span><div class="txt setv">' + linked(p.values || "All control values.", p.id) + "</div></div>" +
+        '<div class="field"><span class="lab">Related parties to add</span><div class="txt setv">' + linked(p.related || "None", p.id) + "</div></div>" + referencedByHtml(p.id) + "</div>" +
         '<div class="edit"><div class="row2"><div class="field"><span class="lab">Expected in current build</span><div class="txt">' + esc(p.expectedNow) + "</div></div>" +
         '<div class="field"><span class="lab">Once working</span><div class="txt">' + esc(p.expectedFinal) + (p.total ? ' <span class="count num">(' + esc(p.total) + ")</span>" : "") + "</div></div></div>" +
         '<div class="field"><label for="pr-' + esc(p.id) + '">Recorded final risk</label><select id="pr-' + esc(p.id) + '" data-k="parties" data-f="recorded" data-l="recorded" data-id="' + esc(p.id) + '"' + (ui.readOnly ? " disabled" : "") + ">" + LEVELS.map(function (l) { return '<option value="' + l + '"' + (l === (p.recorded || "") ? " selected" : "") + ">" + (l || "–") + "</option>"; }).join("") + "</select></div>" +
-        '<div class="field"><span class="lab">Used by tests</span><div class="txt">' + esc(p.tests) + "</div></div></div></div></details>";
+        '<div class="field"><span class="lab">Used by tests</span><div class="txt">' + linked(p.tests, p.id) + "</div></div></div></div></details>";
     }).join("") + (L.length ? "" : '<p class="empty">No parties match.</p>') + "</div>";
     return h;
   }
@@ -401,8 +481,8 @@
   function vQuestions() {
     return "<h2>Questions and answers<small>" + state.questions.filter(qOpen).length + " open</small></h2><div class=\"list\">" + state.questions.map(function (q) {
       var open = qOpen(q);
-      return '<details class="item"><summary><span class="mono">Q' + esc(q.n) + '</span><span class="obj">' + esc(q.q) + "<small>" + esc(q.tests) + "</small></span>" + '<span class="pill ' + (open ? "s-partial" : "s-pass") + '">' + esc(q.status || "Open") + "</span></summary>" +
-        '<div class="body"><div class="field"><label for="qa-' + esc(q.n) + '">Answer</label><textarea id="qa-' + esc(q.n) + '" data-k="questions" data-f="a" data-l="answer" data-id="' + esc(q.n) + '"' + (ui.readOnly ? " disabled" : "") + ">" + esc(q.a) + '</textarea></div><div class="field"><label for="qs-' + esc(q.n) + '">Status</label><input type="text" id="qs-' + esc(q.n) + '" data-k="questions" data-f="status" data-l="status" data-id="' + esc(q.n) + '" value="' + esc(q.status) + '"' + (ui.readOnly ? " disabled" : "") + "></div></div></details>";
+      return '<details class="item" data-id="' + esc(qid(q)) + '"' + (ui.open === qid(q) ? " open" : "") + '><summary><span class="mono">' + esc(qid(q)) + '</span><span class="obj">' + linked(q.q, qid(q)) + "<small>" + linked(q.tests, qid(q)) + "</small></span>" + '<span class="pill ' + (open ? "s-partial" : "s-pass") + '">' + esc(q.status || "Open") + "</span></summary>" +
+        '<div class="body"><div class="field">' + referencedByHtml(qid(q)) + '<label for="qa-' + esc(q.n) + '">Answer</label><textarea id="qa-' + esc(q.n) + '" data-k="questions" data-f="a" data-l="answer" data-id="' + esc(q.n) + '"' + (ui.readOnly ? " disabled" : "") + ">" + esc(q.a) + '</textarea></div><div class="field"><label for="qs-' + esc(q.n) + '">Status</label><input type="text" id="qs-' + esc(q.n) + '" data-k="questions" data-f="status" data-l="status" data-id="' + esc(q.n) + '" value="' + esc(q.status) + '"' + (ui.readOnly ? " disabled" : "") + "></div></div></details>";
     }).join("") + "</div>";
   }
 
@@ -735,6 +815,8 @@
       root.innerHTML = '<main class="wrap">' + vNotice() + '<div class="panel signin"><h1>' + (mode === "noaccess" ? "No access" : "Couldn’t load") + "</h1><p>" + (mode === "noaccess" ? "This account can’t open the hub." : "The hub didn’t load.") + '</p><div class="actions"><button class="btn" data-act="reload">Try again</button><button class="btn" data-act="signout">Sign out</button></div></div></main>';
       return;
     }
+    if (ui.go != null) { var go = ui.go; ui.go = null; showItem(ui.tab, go); return; }
+    buildRefs();
     var focusId = document.activeElement && document.activeElement.id, selStart = null;
     try { selStart = document.activeElement && document.activeElement.selectionStart; } catch (e) {}
     var openEl = root.querySelector("details.item[open]"); if (openEl) ui.open = openEl.getAttribute("data-id");
@@ -759,6 +841,8 @@
 
   // ---------- events ----------
   document.addEventListener("click", function (e) {
+    var ln = e.target.closest('a[href^="#"]');
+    if (ln) { if (!e.ctrlKey && !e.metaKey && !e.shiftKey) rememberPlace(); return; }
     var t = e.target.closest("[data-tab],[data-act],[data-go-status],[data-auth]"); if (!t) return;
     if (t.hasAttribute("data-auth")) { ui.auth = t.getAttribute("data-auth"); ui.authMsg = null; render(); return; }
     if (t.hasAttribute("data-tab")) { ui.tab = t.getAttribute("data-tab"); ui.open = null; try { history.replaceState(null, "", "#" + ui.tab); } catch (x) {} render(); window.scrollTo(0, 0); return; }
@@ -793,6 +877,8 @@
     else if (a === "shot-del-no") { ui.shotDel = null; render(); }
     else if (a === "shot-del-yes") deleteShot(t.getAttribute("data-id"), t.getAttribute("data-shot"));
   });
+  // Following a link, or Back and Forward between them.
+  window.addEventListener("hashchange", function () { var h = readHash(); if (h) { ui.tab = h.tab; ui.go = h.id; render(); } });
   // Opening a defect loads its thumbnails.
   document.addEventListener("toggle", function (e) { if (e.target.matches && e.target.matches("details.item[open]")) loadThumbs(); }, true);
   // Pasting an image while a defect is open adds it as a screenshot.
