@@ -13,6 +13,8 @@
   --fail: #b8322a;
   --blocked: #6b5aa6;
   --notrun: #9aa5b1;
+  --retest: #1f5f8b;
+  --retest-bg: #e2ecf4;
   --pass-bg: #e3f1e8;
   --partial-bg: #f8eedb;
   --fail-bg: #f8e1df;
@@ -27,14 +29,14 @@
   :root:not([data-theme="light"]) {
     --bg: #11161c; --surface: #18202a; --surface-2: #1f2934; --fg: #e4e9ee; --muted: #9aa7b4; --line: #2c3742;
     --accent: #6fb0e0; --accent-ink: #0d1620; --pass: #6cc28f; --partial: #e2b25c; --fail: #f08a80; --blocked: #ad9ff0;
-    --notrun: #7d8a97; --pass-bg: #1c3527; --partial-bg: #3a2f17; --fail-bg: #3d1f1d; --blocked-bg: #2a2542; --notrun-bg: #252f39;
+    --notrun: #7d8a97; --retest: #6fb0e0; --retest-bg: #1a2a38; --pass-bg: #1c3527; --partial-bg: #3a2f17; --fail-bg: #3d1f1d; --blocked-bg: #2a2542; --notrun-bg: #252f39;
     --focus: #7fbaf0; color-scheme: dark;
   }
 }
 :root[data-theme="dark"] {
   --bg: #11161c; --surface: #18202a; --surface-2: #1f2934; --fg: #e4e9ee; --muted: #9aa7b4; --line: #2c3742;
   --accent: #6fb0e0; --accent-ink: #0d1620; --pass: #6cc28f; --partial: #e2b25c; --fail: #f08a80; --blocked: #ad9ff0;
-  --notrun: #7d8a97; --pass-bg: #1c3527; --partial-bg: #3a2f17; --fail-bg: #3d1f1d; --blocked-bg: #2a2542; --notrun-bg: #252f39;
+  --notrun: #7d8a97; --retest: #6fb0e0; --retest-bg: #1a2a38; --pass-bg: #1c3527; --partial-bg: #3a2f17; --fail-bg: #3d1f1d; --blocked-bg: #2a2542; --notrun-bg: #252f39;
   --focus: #7fbaf0; color-scheme: dark;
 }
 * { box-sizing: border-box; }
@@ -105,6 +107,7 @@ td.mono, .mono { font-family: var(--font-mono); font-size: 12.5px; white-space: 
 .s-fail { color: var(--fail); background: var(--fail-bg); }
 .s-blocked { color: var(--blocked); background: var(--blocked-bg); }
 .s-notrun { color: var(--muted); background: var(--notrun-bg); }
+.s-retest { color: var(--retest); background: var(--retest-bg); }
 
 /* attention list */
 .att { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
@@ -119,7 +122,7 @@ td.mono, .mono { font-family: var(--font-mono); font-size: 12.5px; white-space: 
 /* filters */
 .filters { margin-top: 16px; display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
 .filters input[type=search] { flex: 1 1 220px; min-width: 0; }
-input[type=search], input[type=text], select, textarea { background: var(--surface); border: 1px solid var(--line); border-radius: var(--r); padding: 6px 8px; }
+input[type=search], input[type=text], select, textarea { background: var(--surface); border: 1px solid var(--line); border-radius: var(--r); padding: 6px 8px; max-width: 100%; min-width: 0; }
 textarea { width: 100%; min-height: 64px; resize: vertical; }
 .count { color: var(--muted); font-size: 13px; }
 
@@ -130,7 +133,7 @@ details.item { background: var(--surface); border: 1px solid var(--line); border
 details.item > summary { list-style: none; cursor: pointer; display: grid; grid-template-columns: 78px minmax(0, 1fr) auto; gap: 10px; padding: 9px 12px; align-items: baseline; }
 details.item > summary::-webkit-details-marker { display: none; }
 details.item[open] > summary { border-bottom: 1px solid var(--line); }
-.item .obj { min-width: 0; }
+.item .obj { min-width: 0; overflow-wrap: anywhere; }
 .item .obj small { display: block; color: var(--muted); font-size: 12px; }
 .body { padding: 12px; display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 14px; }
 @media (max-width: 760px) { .body { grid-template-columns: minmax(0, 1fr); } details.item > summary { grid-template-columns: 64px minmax(0, 1fr); } details.item > summary .pill, details.item > summary .pills { grid-column: 2; justify-self: start; } }
@@ -139,7 +142,7 @@ details.item[open] > summary { border-bottom: 1px solid var(--line); }
 .field { display: grid; gap: 4px; min-width: 0; }
 .field label, .field .lab { font-size: 12px; color: var(--muted); }
 .field .txt { white-space: pre-wrap; overflow-wrap: anywhere; }
-.edit { background: var(--surface-2); border-radius: var(--r); padding: 10px; display: grid; gap: 10px; align-content: start; }
+.edit { background: var(--surface-2); border-radius: var(--r); padding: 10px; display: grid; grid-template-columns: minmax(0, 1fr); gap: 10px; align-content: start; }
 .row2 { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 10px; }
 
 /* add defect */
@@ -200,3 +203,24 @@ table.ctl th { position: static; width: 34%; background: var(--surface-2); color
 /* Cross-references: an item ID written in text links to that item. */
 a.ref { color: var(--accent); text-decoration: underline dotted; text-underline-offset: 2px; }
 a.ref:hover { text-decoration-style: solid; }
+@media (max-width: 600px) { .btn { white-space: normal; } }
+
+/* Add-defect form: the link-to-test tick and the buttons. */
+form.add .actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.check { display: flex; gap: 8px; align-items: baseline; font-size: 13px; }
+.check input { margin: 0; flex: none; }
+
+/* Side panel: a linked item opens beside the one you're on (over it, below 1100px). */
+.peek { position: fixed; top: 0; right: 0; bottom: 0; width: min(440px, 100vw); z-index: 20; background: var(--surface); border-left: 1px solid var(--line); overflow-y: auto; overscroll-behavior: contain; padding: 0 16px 32px; padding-top: env(safe-area-inset-top, 0px); }
+.peek-head { position: sticky; top: 0; z-index: 1; background: var(--surface); display: flex; flex-wrap: wrap; gap: 8px; align-items: center; padding: 10px 0; border-bottom: 1px solid var(--line); }
+.peek-kind { margin-right: auto; color: var(--muted); font-size: 13px; }
+.peek-kind b { color: var(--fg); }
+#peek-x { font-size: 18px; line-height: 1; padding: 4px 11px; }
+.peek-body { display: grid; gap: 10px; padding-top: 12px; }
+.peek-body h3 { margin: 0; font-size: 16px; text-wrap: balance; overflow-wrap: anywhere; }
+.peek-body .pills { justify-content: flex-start; }
+.peek-body .count { margin: 0; }
+@media (min-width: 1100px) { body.peeking { padding-right: 440px; } }
+/* Keep an open item's read-only column packed at the top, however tall the edit column is. */
+.body > .field { align-content: start; }
+#nd-steps { min-height: 110px; }

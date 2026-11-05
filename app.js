@@ -2,7 +2,10 @@
   "use strict";
   var TITLE = "Testing Hub";
   var OFFLINE_RESET = ":root{color-scheme:light}body{margin:0}img{max-width:100%}[hidden]{display:none!important}";
-  var STATUSES = ["Not run", "Pass", "Partial pass", "Fail", "Blocked"];
+  var STATUSES = ["Not run", "Retest", "Pass", "Partial pass", "Fail", "Blocked"];
+  // Bar and legend order: results first, then what still needs running.
+  var ORDER = ["Pass", "Partial pass", "Fail", "Blocked", "Retest", "Not run"];
+  var QSTATUS = ["Open", "Asked B4", "Answered"];
   var DSTATUS = ["Open", "To confirm", "Retest", "Raised with B4", "Fixed", "Closed"];
   var SEV = ["High", "Medium", "Low"];
   var LEVELS = ["", "Low", "Medium", "High", "High+", "Blocked"];
@@ -17,8 +20,9 @@
   var local = function (d) { return new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 19); };
   var now = function () { return local(new Date()); };
   var fmt = function (iso) { if (!iso) return ""; return String(iso).replace("T", " ").slice(0, 16); };
-  var sclass = function (s) { return { "Pass": "s-pass", "Partial pass": "s-partial", "Fail": "s-fail", "Blocked": "s-blocked" }[s] || "s-notrun"; };
-  var scolor = function (s) { return { "Pass": "var(--pass)", "Partial pass": "var(--partial)", "Fail": "var(--fail)", "Blocked": "var(--blocked)" }[s] || "var(--notrun)"; };
+  var sclass = function (s) { return { "Pass": "s-pass", "Partial pass": "s-partial", "Fail": "s-fail", "Blocked": "s-blocked", "Retest": "s-retest" }[s] || "s-notrun"; };
+  var scolor = function (s) { return { "Pass": "var(--pass)", "Partial pass": "var(--partial)", "Fail": "var(--fail)", "Blocked": "var(--blocked)", "Retest": "var(--retest)" }[s] || "var(--notrun)"; };
+  var trunc = function (v, n) { v = String(v || ""); return v.length > n ? v.slice(0, n - 1).replace(/\s+\S*$/, "") + "…" : v; };
   var short = function (sec) { return String(sec || "").replace(/\s*\(.*\)\s*$/, ""); };
   var clone = function (o) { return JSON.parse(JSON.stringify(o)); };
   var ext = function (n) { var m = /\.([a-z0-9]+)$/i.exec(n || ""); return m ? m[1].toLowerCase() : ""; };
@@ -35,8 +39,8 @@
   var ui = { tab: "overview", q: "", area: "", status: "", dq: "", dstatus: "", notice: null, importDiff: null, readOnly: false, auth: "signin" };
   // #tests opens a tab; #tests/RUL-01 also opens that item in it (once the data is in).
   var TABS = ["overview", "tests", "defects", "parties", "questions", "documents"];
-  function readHash() {
-    try { var h = decodeURIComponent((location.hash || "").replace("#", "")), tab = h.split("/")[0]; } catch (e) { return null; }
+  function readHash(from) {
+    try { var h = decodeURIComponent((from == null ? location.hash || "" : from).replace("#", "")), tab = h.split("/")[0]; } catch (e) { return null; }
     return TABS.indexOf(tab) >= 0 ? { tab: tab, id: h.slice(tab.length + 1) } : null;
   }
   var h0 = readHash(); if (h0) { ui.tab = h0.tab; ui.go = h0.id; }
@@ -166,6 +170,7 @@
     rec[field] = value;
     if (label) addLog(id + ": " + label + " → " + (value || "(blank)"));
     if (hosted) queue(KIND[k], rec); else { dirty++; saveDraft(); }
+    if (k === "defects" && field === "status") freeTests(rec);
     render();
   }
 
@@ -199,7 +204,8 @@
 
   // ---------- views ----------
   function counts(list) { var c = {}; STATUSES.forEach(function (s) { c[s] = 0; }); list.forEach(function (t) { c[STATUSES.indexOf(t.status) >= 0 ? t.status : "Not run"]++; }); return c; }
-  function segs(c, total) { return STATUSES.slice(1).concat(["Not run"]).map(function (s) { var w = total ? (c[s] / total * 100) : 0; return w ? '<i style="width:' + w.toFixed(2) + '%;background:' + scolor(s) + '" title="' + esc(s + ": " + c[s]) + '"></i>' : ""; }).join(""); }
+  function toRun(t) { return !t.status || t.status === "Not run" || t.status === "Retest"; }
+  function segs(c, total) { return ORDER.map(function (s) { var w = total ? (c[s] / total * 100) : 0; return w ? '<i style="width:' + w.toFixed(2) + '%;background:' + scolor(s) + '" title="' + esc(s + ": " + c[s]) + '"></i>' : ""; }).join(""); }
   function pill(s) { return '<span class="pill ' + sclass(s) + '">' + esc(s || "Not run") + "</span>"; }
   // Defect status on the list row: amber while it's with us, purple while it's with B4, green once fixed.
   function dstatusPill(d) {
@@ -277,10 +283,10 @@
   }
 
   function vOverview() {
-    var T = state.tests, c = counts(T), total = T.length, done = total - c["Not run"];
+    var T = state.tests, c = counts(T), total = T.length, done = total - c["Not run"] - c.Retest;
     var secs = []; T.forEach(function (t) { if (secs.indexOf(t.section) < 0) secs.push(t.section); });
     var rows = secs.map(function (s) {
-      var L = T.filter(function (t) { return t.section === s; }), cc = counts(L), d = L.length - cc["Not run"];
+      var L = T.filter(function (t) { return t.section === s; }), cc = counts(L), d = L.length - cc["Not run"] - cc.Retest;
       return "<tr><td>" + esc(short(s)) + '</td><td class="mono">' + d + "/" + L.length + '</td><td><div class="areabar">' + segs(cc, L.length) + '</div></td><td class="mono">' + cc.Pass + '</td><td class="mono">' + cc.Fail + '</td><td class="mono">' + cc.Blocked + "</td></tr>";
     }).join("");
     var D = state.defects.filter(live), od = D.filter(openDefect);
@@ -291,16 +297,16 @@
     var attTests = T.filter(function (t) { return t.status === "Fail" || t.status === "Blocked"; });
     var high = od.filter(function (d) { return d.severity === "High"; });
     var oq = state.questions.filter(qOpen);
-    var next = T.filter(function (t) { return t.status === "Not run"; }).slice(0, 5);
+    var next = T.filter(function (t) { return t.status === "Retest"; }).concat(T.filter(function (t) { return toRun(t) && t.status !== "Retest"; })).slice(0, 5);
     return '<section class="summary"><div class="panel"><div class="eyebrow">Test cases</div><div class="big"><strong>' + done + "</strong><span>of " + total + " run · " + c.Pass + " passed</span></div>" +
-      '<div class="seg">' + segs(c, total) + '</div><div class="legend">' + STATUSES.slice(1).concat(["Not run"]).map(function (s) { return '<button data-go-status="' + esc(s) + '"><span class="dot" style="background:' + scolor(s) + '"></span>' + esc(s) + ' <span class="num">' + c[s] + "</span></button>"; }).join("") + "</div></div>" +
+      '<div class="seg">' + segs(c, total) + '</div><div class="legend">' + ORDER.map(function (s) { return '<button data-go-status="' + esc(s) + '"><span class="dot" style="background:' + scolor(s) + '"></span>' + esc(s) + ' <span class="num">' + c[s] + "</span></button>"; }).join("") + "</div></div>" +
       '<div class="panel"><div class="eyebrow">Defects</div><div class="big"><strong>' + od.length + "</strong><span>open of " + D.length + '</span></div><div class="defsum">' + dsum + "</div></div></section>" +
       "<h2>By area<small>run / total, then the split by result</small></h2>" +
       '<div class="tablewrap"><table><thead><tr><th>Area</th><th>Run</th><th>Results</th><th>Pass</th><th>Fail</th><th>Blocked</th></tr></thead><tbody>' + rows + "</tbody></table></div>" +
       '<div class="cols"><div><h2>Needs attention<small>' + (attTests.length + high.length) + "</small></h2>" +
       ((attTests.length + high.length) ? '<ul class="att">' + attTests.map(function (t) { return '<li class="sev-High">' + idLink("tests", t.id, "mono") + "<p>" + pill(t.status) + " " + esc(t.objective) + "</p></li>"; }).join("") +
         high.map(function (d) { return '<li class="sev-High">' + idLink("defects", d.id, "mono") + "<p>" + esc(d.summary) + "</p></li>"; }).join("") + "</ul>" : '<p class="empty">Nothing failing or blocked.</p>') +
-      "<h2>Next to run</h2>" + (next.length ? '<ul class="att">' + next.map(function (t) { return '<li>' + idLink("tests", t.id, "mono") + "<p>" + esc(t.objective) + "</p></li>"; }).join("") + "</ul>" : '<p class="empty">Every test has a result.</p>') +
+      "<h2>Next to run</h2>" + (next.length ? '<ul class="att">' + next.map(function (t) { return '<li>' + idLink("tests", t.id, "mono") + "<p>" + (t.status === "Retest" ? pill("Retest") + " " : "") + esc(t.objective) + "</p></li>"; }).join("") + "</ul>" : '<p class="empty">Every test has a result.</p>') +
       "</div><div><h2>Open questions<small>" + oq.length + "</small></h2>" + (oq.length ? '<ul class="att">' + oq.map(function (q) { return '<li class="sev-Low">' + idLink("questions", qid(q), "mono") + "<p>" + esc(q.q) + "</p></li>"; }).join("") + "</ul>" : '<p class="empty">No open questions.</p>') +
       "<h2>Activity</h2><ul class=\"log\">" + state.log.slice(0, 12).map(function (l) { return "<li><time>" + esc(fmt(l.at)) + "</time>" + linked(l.text) + "</li>"; }).join("") + "</ul></div></div>";
   }
@@ -328,7 +334,8 @@
         '<div class="edit"><div class="row2"><div class="field"><label for="st-' + esc(t.id) + '">Result</label><select id="st-' + esc(t.id) + '" data-k="tests" data-f="status" data-l="result" data-id="' + esc(t.id) + '"' + (ui.readOnly ? " disabled" : "") + ">" + STATUSES.map(function (s) { return "<option" + (s === (t.status || "Not run") ? " selected" : "") + ">" + esc(s) + "</option>"; }).join("") + "</select></div>" +
         '<div class="field"><label for="ev-' + esc(t.id) + '">Evidence</label><input type="text" id="ev-' + esc(t.id) + '" data-k="tests" data-f="evidence" data-l="evidence" data-id="' + esc(t.id) + '" value="' + esc(t.evidence) + '"' + (ui.readOnly ? " disabled" : "") + "></div></div>" +
         '<div class="field"><label for="ac-' + esc(t.id) + '">Actual result</label><textarea id="ac-' + esc(t.id) + '" data-k="tests" data-f="actual" data-l="actual result" data-id="' + esc(t.id) + '"' + (ui.readOnly ? " disabled" : "") + ">" + esc(t.actual) + "</textarea></div>" +
-        '<div class="field"><label for="co-' + esc(t.id) + '">Comments</label><textarea id="co-' + esc(t.id) + '" data-k="tests" data-f="comments" data-l="comments" data-id="' + esc(t.id) + '"' + (ui.readOnly ? " disabled" : "") + ">" + esc(t.comments) + "</textarea></div>" + blockedByHtml(t) + "</div></div></details>";
+        '<div class="field"><label for="co-' + esc(t.id) + '">Comments</label><textarea id="co-' + esc(t.id) + '" data-k="tests" data-f="comments" data-l="comments" data-id="' + esc(t.id) + '"' + (ui.readOnly ? " disabled" : "") + ">" + esc(t.comments) + "</textarea></div>" + blockedByHtml(t) +
+        (ui.readOnly ? "" : '<div><button class="btn" data-act="raise-defect" data-id="' + esc(t.id) + '">Raise a defect from this test</button></div>') + "</div></div></details>";
     });
     return html + (L.length ? "" : '<p class="empty">No tests match these filters.</p>') + "</div>";
   }
@@ -348,7 +355,7 @@
     }).join("") + "</div>" : '<div class="txt count">None linked.</div>';
     if (!ro) {
       var free = state.defects.filter(function (d) { return live(d) && ids.indexOf(d.id) < 0; });
-      var opt = function (d) { return '<option value="' + esc(d.id) + '">' + esc(d.id + " · " + (d.status || "Open") + " · " + String(d.summary || "").slice(0, 80)) + "</option>"; };
+      var opt = function (d) { return '<option value="' + esc(d.id) + '">' + esc(d.id + " · " + (d.status || "Open") + " · " + trunc(d.summary, 60)) + "</option>"; };
       var open = free.filter(openDefect), done = free.filter(function (d) { return !openDefect(d); });
       if (free.length) h += '<select id="bl-' + esc(t.id) + '" data-block="' + esc(t.id) + '" aria-label="Link a defect blocking ' + esc(t.id) + '"><option value="">Link a defect…</option>' +
         (open.length ? '<optgroup label="Open">' + open.map(opt).join("") + "</optgroup>" : "") +
@@ -422,7 +429,13 @@
     });
     var nextId = nextDefectId();
     var html = '<div class="filters"><input type="search" id="f-dq" placeholder="Search defects" value="' + esc(ui.dq) + '"><select id="f-dstatus"><option value="">All defects</option><option value="open"' + (ui.dstatus === "open" ? " selected" : "") + ">Open only</option>" + DSTATUS.map(function (s) { return "<option" + (s === ui.dstatus ? " selected" : "") + ">" + esc(s) + "</option>"; }).join("") + '<option value="deleted"' + (ui.dstatus === "deleted" ? " selected" : "") + ">Deleted (" + state.defects.filter(function (d) { return !live(d); }).length + ")</option>" + '</select><span class="count">' + L.length + " shown</span></div>";
-    if (!ui.readOnly) html += '<form class="add" id="add-defect"><div class="eyebrow">New defect · ' + nextId + '</div><div class="row3"><div class="field"><label for="nd-area">Area</label><input type="text" id="nd-area" required placeholder="e.g. Rules"></div><div class="field"><label for="nd-sev">Severity</label><select id="nd-sev">' + SEV.map(function (s) { return "<option" + (s === "Medium" ? " selected" : "") + ">" + s + "</option>"; }).join("") + '</select></div><div class="field"><label for="nd-ref">Test ref</label><input type="text" id="nd-ref" placeholder="e.g. RUL-01"></div></div><div class="field"><label for="nd-sum">What goes wrong</label><textarea id="nd-sum" required></textarea></div><div class="field"><label for="nd-steps">Steps / evidence</label><input type="text" id="nd-steps"></div><div><button class="btn primary" type="submit">Add defect</button></div></form>';
+    if (!ui.readOnly) {
+      var nd = ui.nd || {}, from = nd.link && find(state.tests, nd.link);
+      html += '<form class="add" id="add-defect"><div class="eyebrow">New defect · ' + nextId + (from ? " · from " + esc(from.id) : "") + '</div><div class="row3"><div class="field"><label for="nd-area">Area</label><input type="text" id="nd-area" required placeholder="e.g. Rules" value="' + esc(nd.area || "") + '"></div><div class="field"><label for="nd-sev">Severity</label><select id="nd-sev">' + SEV.map(function (s) { return "<option" + (s === (nd.sev || "Medium") ? " selected" : "") + ">" + s + "</option>"; }).join("") + '</select></div><div class="field"><label for="nd-ref">Test ref</label><input type="text" id="nd-ref" placeholder="e.g. RUL-01" value="' + esc(nd.ref || "") + '"></div></div>' +
+        '<div class="field"><label for="nd-sum">What goes wrong</label><textarea id="nd-sum" required>' + esc(nd.sum || "") + '</textarea></div><div class="field"><label for="nd-steps">Steps / evidence</label><textarea id="nd-steps">' + esc(nd.steps || "") + "</textarea></div>" +
+        (from ? '<label class="check"><input type="checkbox" id="nd-link"' + (nd.linkOff ? "" : " checked") + "> Link it to " + esc(from.id) + " as a defect blocking it, so the test is set to Retest once it’s fixed</label>" : "") +
+        '<div class="actions"><button class="btn primary" type="submit">Add defect</button>' + (from ? '<button class="btn" type="button" data-act="nd-cancel">Cancel</button>' : "") + "</div></form>";
+    }
     html += '<div class="list">' + L.map(function (d) {
       return '<details class="item" data-id="' + esc(d.id) + '"' + (ui.open === d.id ? " open" : "") + '><summary><span class="mono">' + esc(d.id) + '</span><span class="obj">' + esc(d.summary) + "<small>" + esc(d.area) + (d.ref ? " · " + linked(d.ref, d.id) : "") + " · " + esc(d.date) + (d.shots && d.shots.length ? " · " + d.shots.length + " screenshot" + (d.shots.length === 1 ? "" : "s") : "") + (blockedTests(d.id).length ? " · blocks " + blockedTests(d.id).length + " test" + (blockedTests(d.id).length === 1 ? "" : "s") : "") + "</small></span>" + '<span class="pills">' + dstatusPill(d) + sevPill(d.severity) + "</span></summary>" +
         '<div class="body"><div class="field" style="gap:10px"><div class="field"><span class="lab">Steps / evidence</span><div class="txt">' + linked(d.steps || "–", d.id) + "</div></div>" + shotsHtml(d) + blockingHtml(d) + referencedByHtml(d.id, blockedTests(d.id).map(function (t) { return t.id; })) +
@@ -431,9 +444,18 @@
         '<div class="field"><label for="dv-' + esc(d.id) + '">Severity</label><select id="dv-' + esc(d.id) + '" data-k="defects" data-f="severity" data-l="severity" data-id="' + esc(d.id) + '"' + (ui.readOnly ? " disabled" : "") + ">" + SEV.map(function (s) { return "<option" + (s === d.severity ? " selected" : "") + ">" + s + "</option>"; }).join("") + "</select></div></div>" +
         '<div class="row2"><div class="field"><label for="dr-' + esc(d.id) + '">Raised with B4 (date)</label><input type="text" id="dr-' + esc(d.id) + '" data-k="defects" data-f="raised" data-l="raised" data-id="' + esc(d.id) + '" value="' + esc(d.raised) + '"' + (ui.readOnly ? " disabled" : "") + "></div>" +
         '<div class="field"><label for="df-' + esc(d.id) + '">Fix version</label><input type="text" id="df-' + esc(d.id) + '" data-k="defects" data-f="fix" data-l="fix version" data-id="' + esc(d.id) + '" value="' + esc(d.fix) + '"' + (ui.readOnly ? " disabled" : "") + "></div></div>" +
-        '<div class="field"><label for="drr-' + esc(d.id) + '">Retest result</label><input type="text" id="drr-' + esc(d.id) + '" data-k="defects" data-f="retestResult" data-l="retest result" data-id="' + esc(d.id) + '" value="' + esc(d.retestResult) + '"' + (ui.readOnly ? " disabled" : "") + "></div>" + defectTail(d) + "</div></div></details>";
+        '<div class="row2">' + dInput(d, "area", "Area", "area") + dInput(d, "ref", "Test ref", "test ref") + "</div>" +
+        '<div class="field"><label for="dsp-' + esc(d.id) + '">Steps / evidence</label><textarea id="dsp-' + esc(d.id) + '" data-k="defects" data-f="steps" data-l="steps" data-id="' + esc(d.id) + '"' + (ui.readOnly ? " disabled" : "") + ">" + esc(d.steps) + "</textarea></div>" +
+        '<div class="row2">' + dInput(d, "retestDate", "Retest date", "retest date", "YYYY-MM-DD") +
+        '<div class="field"><label for="drr-' + esc(d.id) + '">Retest result</label><input type="text" id="drr-' + esc(d.id) + '" data-k="defects" data-f="retestResult" data-l="retest result" data-id="' + esc(d.id) + '" value="' + esc(d.retestResult) + '"' + (ui.readOnly ? " disabled" : "") + "></div></div>" + defectTail(d) + "</div></div></details>";
     }).join("") + (L.length ? "" : '<p class="empty">No defects match.</p>') + "</div>";
     return html;
+  }
+
+  var DIN = { area: "da-", ref: "dtr-", retestDate: "drd-" };
+  function dInput(d, f, label, logLabel, ph) {
+    var id = DIN[f] + d.id;
+    return '<div class="field"><label for="' + esc(id) + '">' + esc(label) + '</label><input type="text" id="' + esc(id) + '" data-k="defects" data-f="' + f + '" data-l="' + esc(logLabel) + '" data-id="' + esc(d.id) + '" value="' + esc(d[f]) + '"' + (ph ? ' placeholder="' + ph + '"' : "") + (ui.readOnly ? " disabled" : "") + "></div>";
   }
 
   function vSetup() {
@@ -482,7 +504,8 @@
     return "<h2>Questions and answers<small>" + state.questions.filter(qOpen).length + " open</small></h2><div class=\"list\">" + state.questions.map(function (q) {
       var open = qOpen(q);
       return '<details class="item" data-id="' + esc(qid(q)) + '"' + (ui.open === qid(q) ? " open" : "") + '><summary><span class="mono">' + esc(qid(q)) + '</span><span class="obj">' + linked(q.q, qid(q)) + "<small>" + linked(q.tests, qid(q)) + "</small></span>" + '<span class="pill ' + (open ? "s-partial" : "s-pass") + '">' + esc(q.status || "Open") + "</span></summary>" +
-        '<div class="body"><div class="field">' + referencedByHtml(qid(q)) + '<label for="qa-' + esc(q.n) + '">Answer</label><textarea id="qa-' + esc(q.n) + '" data-k="questions" data-f="a" data-l="answer" data-id="' + esc(q.n) + '"' + (ui.readOnly ? " disabled" : "") + ">" + esc(q.a) + '</textarea></div><div class="field"><label for="qs-' + esc(q.n) + '">Status</label><input type="text" id="qs-' + esc(q.n) + '" data-k="questions" data-f="status" data-l="status" data-id="' + esc(q.n) + '" value="' + esc(q.status) + '"' + (ui.readOnly ? " disabled" : "") + "></div></div></details>";
+        '<div class="body"><div class="field">' + referencedByHtml(qid(q)) + '<label for="qa-' + esc(q.n) + '">Answer</label><textarea id="qa-' + esc(q.n) + '" data-k="questions" data-f="a" data-l="answer" data-id="' + esc(q.n) + '"' + (ui.readOnly ? " disabled" : "") + ">" + esc(q.a) + '</textarea></div><div class="field"><label for="qs-' + esc(q.n) + '">Status</label><select id="qs-' + esc(q.n) + '" data-k="questions" data-f="status" data-l="status" data-id="' + esc(q.n) + '"' + (ui.readOnly ? " disabled" : "") + ">" +
+        (q.status && QSTATUS.indexOf(q.status) < 0 ? "<option selected>" + esc(q.status) + "</option>" : "") + QSTATUS.map(function (s) { return "<option" + (s === (q.status || "Open") ? " selected" : "") + ">" + esc(s) + "</option>"; }).join("") + "</select></div></div></details>";
     }).join("") + "</div>";
   }
 
@@ -786,12 +809,113 @@
     }, fail);
   }
 
+  // ---------- a fixed defect frees its tests ----------
+  // When a defect is fixed or closed, every test it was holding up (Blocked, Fail or
+  // Partial pass) that nothing else open still blocks is set to Retest. The notice
+  // offers Undo.
+  function andList(a) { return a.length < 2 ? a.join("") : a.slice(0, -1).join(", ") + " and " + a[a.length - 1]; }
+  function freeTests(d) {
+    if (openDefect(d)) return;
+    var T = blockedTests(d.id).filter(function (t) {
+      if (["Blocked", "Fail", "Partial pass"].indexOf(t.status) < 0) return false;
+      return (t.blockedBy || []).every(function (id) { var x = find(state.defects, id); return !x || !openDefect(x); });
+    });
+    if (!T.length) return;
+    var prev = {};
+    T.forEach(function (t) { prev[t.id] = t.status; t.status = "Retest"; addLog(t.id + ": result → Retest (" + d.id + " " + String(d.status || "").toLowerCase() + ")"); saveTest(t); });
+    var ids = T.map(function (t) { return t.id; });
+    ui.notice = { kind: "", text: andList(ids) + (ids.length === 1 ? " is" : " are") + " now Retest: " + d.id + " is " + d.status + " and nothing else open blocks " + (ids.length === 1 ? "it." : "them."), undo: prev };
+  }
+  function undoFree() {
+    var prev = ui.notice && ui.notice.undo; if (!prev) return;
+    Object.keys(prev).forEach(function (id) {
+      var t = find(state.tests, id); if (!t || t.status !== "Retest") return;
+      t.status = prev[id]; addLog(id + ": result → " + prev[id] + " (undone)"); saveTest(t);
+    });
+    ui.notice = null; render();
+  }
+
+  // ---------- raise a defect from a test ----------
+  function raiseFrom(tid) {
+    var t = find(state.tests, tid); if (!t) return;
+    var steps = [t.steps && "Steps: " + t.steps, t.data && t.data !== "–" && "Test data: " + t.data, t.expected && "Expected: " + t.expected, t.actual && "Actual: " + t.actual, t.evidence && "Evidence: " + t.evidence].filter(Boolean).join("\n");
+    ui.nd = { area: t.area || short(t.section) || "", sev: "Medium", ref: t.id, sum: t.actual || "", steps: steps, link: t.id };
+    ui.peek = null;
+    rememberPlace();
+    ui.tab = "defects"; ui.open = null; ui.dq = ""; ui.dstatus = "";
+    try { history.pushState(null, "", "#defects"); } catch (x) {}
+    Array.prototype.forEach.call(document.querySelectorAll("details.item[open]"), function (el) { el.open = false; });
+    render();
+    var f = $("#add-defect"); if (f) f.scrollIntoView({ block: "start" });
+    var s = $("#nd-sum"); if (s) s.focus();
+  }
+  var ND = { "nd-area": "area", "nd-sev": "sev", "nd-ref": "ref", "nd-sum": "sum", "nd-steps": "steps" };
+  function ndCapture(el) {
+    if (el.id === "nd-link") { ui.nd = ui.nd || {}; ui.nd.linkOff = !el.checked; return true; }
+    if (!ND[el.id]) return false;
+    ui.nd = ui.nd || {}; ui.nd[ND[el.id]] = el.value; return true;
+  }
+
+  // ---------- side panel ----------
+  // A linked item opens in a panel beside the one you're working on (over it, on a
+  // phone), so following links never loses your place. Links inside the panel open
+  // there too, with Back; "Open" takes you to the item itself.
+  var KINDNAME = { tests: "Test case", defects: "Defect", parties: "Test party", questions: "Question" };
+  function peekRec(tab, id) { return tab === "questions" ? state.questions.filter(function (q) { return qid(q) === id; })[0] : find(state[tab] || [], id); }
+  function openPeek(tab, id, push) {
+    var top = { tab: tab, id: id };
+    ui.peek = push && ui.peek ? ui.peek.concat([top]) : [top];
+    ui.peekTop = true; render();
+    var x = $("#peek-x"); if (x) x.focus();
+  }
+  function pf(label, text, self, plain) {
+    if (text == null || text === "" || text === "–") return "";
+    return '<div class="field"><span class="lab">' + esc(label) + '</span><div class="txt">' + (plain ? esc(text) : linked(text, self)) + "</div></div>";
+  }
+  function peekChips(label, tab, ids) {
+    if (!ids.length) return "";
+    return '<div class="field"><span class="lab">' + esc(label) + " · " + ids.length + '</span><div class="blk">' + ids.map(function (id) {
+      var r = peekRec(tab, id);
+      return '<span class="blk-chip"><a class="blk-go" href="' + esc(href(tab, id)) + '"><b class="mono">' + esc(id) + "</b> " + esc(r ? refLabel(tab, r) : "(no longer in the hub)") + "</a>" + (r ? refPill(tab, r) : "") + "</span>";
+    }).join("") + "</div></div>";
+  }
+  function vPeek() {
+    var top = ui.peek[ui.peek.length - 1], r = peekRec(top.tab, top.id), id = top.id;
+    var h = '<aside class="peek" id="peek" aria-label="' + esc(KINDNAME[top.tab] + " " + id) + '"><div class="peek-head">' +
+      (ui.peek.length > 1 ? '<button class="btn" data-act="peek-back" title="Back to ' + esc(ui.peek[ui.peek.length - 2].id) + '">← Back</button>' : "") +
+      '<span class="peek-kind">' + esc(KINDNAME[top.tab]) + ' <b class="mono">' + esc(id) + "</b></span>" +
+      (r ? '<button class="btn" data-act="peek-open" title="Go to ' + esc(id) + ' in its own tab">Open</button>' : "") +
+      '<button class="btn" id="peek-x" data-act="peek-close" aria-label="Close the side panel" title="Close (Esc)">×</button></div>';
+    if (!r) return h + '<p class="empty">' + esc(id) + " isn’t in the hub any more.</p></aside>";
+    h += '<div class="peek-body"><h3>' + linked(refLabel(top.tab, r), id) + "</h3>";
+    if (top.tab === "tests") {
+      h += '<div class="pills">' + pill(r.status) + '</div><p class="count">' + esc(short(r.section)) + "</p>" +
+        pf("Note ref", r.ref, id) + pf("Pre-conditions", r.pre, id) + pf("Steps", r.steps, id) + pf("Test data", r.data, id) + pf("Expected result", r.expected, id) +
+        pf("Actual result", r.actual, id) + pf("Evidence", r.evidence, id) + pf("Comments", r.comments, id) +
+        peekChips("Blocked by defects", "defects", r.blockedBy || []) + referencedByHtml(id, r.blockedBy);
+    } else if (top.tab === "defects") {
+      var bl = blockedTests(id).map(function (t) { return t.id; });
+      h += '<div class="pills">' + dstatusPill(r) + sevPill(r.severity) + '</div><p class="count">' + esc([r.area, r.date].filter(Boolean).join(" · ")) + (r.shots && r.shots.length ? " · " + r.shots.length + " screenshot" + (r.shots.length === 1 ? "" : "s") : "") + "</p>" +
+        (live(r) ? "" : pf("Deleted", delText(r.deleted), id, true)) +
+        pf("Test ref", r.ref, id) + pf("Steps / evidence", r.steps, id) + pf("Raised with B4", r.raised, id, true) + pf("Fix version", r.fix, id, true) +
+        pf("Retest date", r.retestDate, id, true) + pf("Retest result", r.retestResult, id) +
+        peekChips("Blocking tests", "tests", bl) + referencedByHtml(id, bl);
+    } else if (top.tab === "parties") {
+      h += '<p class="count">' + esc(r.module + " · " + r.type) + "</p>" + pf("Purpose", r.purpose, id) + pf("Values to enter", r.values || "All control values.", id) +
+        pf("Related parties to add", r.related, id) + pf("Expected in current build", r.expectedNow, id, true) + pf("Once working", r.expectedFinal, id, true) +
+        pf("Recorded final risk", r.recorded, id, true) + pf("Used by tests", r.tests, id) + referencedByHtml(id);
+    } else {
+      h += '<div class="pills">' + refPill("questions", r) + "</div>" + pf("Answer", r.a || "Not answered yet.", id) + pf("Tests affected", r.tests, id) + referencedByHtml(id);
+    }
+    return h + "</div></aside>";
+  }
+
   // ---------- page ----------
   function vNotice() {
     var h = "";
     if (mode === "offline") h += '<div class="notice warn"><p><b>Offline copy.</b> Changes are kept in this browser. Use “Save offline copy” to write them into a new file, or “Export spreadsheet” and upload it to the online hub to bring it up to date.</p></div>';
     if (ui.saveErr) h += '<div class="notice err"><p>Changes aren’t reaching the hub (' + esc(ui.saveErr) + "). They are kept in this browser and will be saved when the connection is back.</p><button class=\"btn\" data-act=\"retry\">Try now</button></div>";
-    if (ui.notice) h += '<div class="notice ' + esc(ui.notice.kind || "") + '"><p>' + esc(ui.notice.text) + "</p>" + (ui.notice.draft ? '<button class="btn" data-act="apply-draft">Re-apply them</button><button class="btn" data-act="drop-draft">Discard</button>' : "") + '<button class="btn" data-act="dismiss">Dismiss</button></div>';
+    if (ui.notice) h += '<div class="notice ' + esc(ui.notice.kind || "") + '"><p>' + esc(ui.notice.text) + "</p>" + (ui.notice.draft ? '<button class="btn" data-act="apply-draft">Re-apply them</button><button class="btn" data-act="drop-draft">Discard</button>' : "") + (ui.notice.undo ? '<button class="btn" data-act="undo-free">Undo</button>' : "") + '<button class="btn" data-act="dismiss">Dismiss</button></div>';
     if (ui.importDiff) {
       var d = ui.importDiff;
       h += '<div class="notice"><p><b>' + esc(d.name) + "</b>: " + (d.changes.length ? d.changes.length + " change(s) found. Review, then apply." : "no differences from the hub.") + "</p>" +
@@ -818,6 +942,10 @@
     if (ui.go != null) { var go = ui.go; ui.go = null; showItem(ui.tab, go); return; }
     buildRefs();
     var focusId = document.activeElement && document.activeElement.id, selStart = null;
+    // A save or refresh redraws the page; keep text that's been typed but not yet saved.
+    var keep = {}, ae = document.activeElement;
+    if (ae && ae.id && /^(TEXTAREA|INPUT)$/.test(ae.tagName) && ae.type !== "checkbox" && ae.value !== ae.defaultValue) keep[ae.id] = ae.value;
+    var pe = $("#peek"), peekScroll = pe && !ui.peekTop ? pe.scrollTop : 0;
     try { selStart = document.activeElement && document.activeElement.selectionStart; } catch (e) {}
     var openEl = root.querySelector("details.item[open]"); if (openEl) ui.open = openEl.getAttribute("data-id");
     var c = counts(state.tests), od = state.defects.filter(openDefect).length, pc = pendingCount();
@@ -826,10 +954,14 @@
       ? chip + '<button class="btn" data-act="reload" title="Load the latest from the hub">Refresh</button><label class="btn" for="imp">Upload spreadsheet</label><input type="file" id="imp" accept=".xlsx,.xls" hidden><button class="btn" data-act="export">Export spreadsheet</button><button class="btn" data-act="offline">Download offline copy</button><button class="btn" data-act="signout" title="' + esc(user && user.email) + '">Sign out</button>'
       : chip + '<label class="btn" for="imp">Upload spreadsheet</label><input type="file" id="imp" accept=".xlsx,.xls" hidden><button class="btn" data-act="export">Export spreadsheet</button><button class="btn primary" data-act="offline">Save offline copy' + (dirty ? " (" + dirty + ")" : "") + "</button>";
     var sub = esc(state.project) + (hosted ? (state.updated ? " · last change " + esc(fmt(state.updated)) : "") : " · copy " + esc(state.rev) + " · " + esc(fmt(state.updated)));
-    var tabs = [["overview", "Overview", ""], ["tests", "Test cases", state.tests.length - c["Not run"] + "/" + state.tests.length], ["defects", "Defects", od + " open"], ["parties", "Test parties", state.parties.length], ["questions", "Questions", state.questions.filter(qOpen).length + " open"], ["documents", "Documents", state.docs.length]];
+    var tabs = [["overview", "Overview", ""], ["tests", "Test cases", state.tests.length - c["Not run"] - c.Retest + "/" + state.tests.length], ["defects", "Defects", od + " open"], ["parties", "Test parties", state.parties.length], ["questions", "Questions", state.questions.filter(qOpen).length + " open"], ["documents", "Documents", state.docs.length]];
     root.innerHTML = '<header class="bar"><div class="bar-in"><div class="brand"><b>' + TITLE + "</b><span>" + sub + '</span></div><div class="actions">' + acts + '</div></div><nav class="tabs" role="tablist">' +
       tabs.map(function (t) { return '<button class="tab" role="tab" data-tab="' + t[0] + '" aria-selected="' + (ui.tab === t[0]) + '">' + t[1] + (t[2] !== "" ? '<span class="n">' + esc(t[2]) + "</span>" : "") + "</button>"; }).join("") + "</nav></header>" +
-      '<main class="wrap">' + vNotice() + (ui.tab === "tests" ? vTests() : ui.tab === "defects" ? vDefects() : ui.tab === "parties" ? vParties() : ui.tab === "questions" ? vQuestions() : ui.tab === "documents" ? vDocuments() : vOverview()) + "</main>";
+      '<main class="wrap">' + vNotice() + (ui.tab === "tests" ? vTests() : ui.tab === "defects" ? vDefects() : ui.tab === "parties" ? vParties() : ui.tab === "questions" ? vQuestions() : ui.tab === "documents" ? vDocuments() : vOverview()) + "</main>" +
+      (ui.peek ? vPeek() : "");
+    document.body.classList.toggle("peeking", !!ui.peek);
+    Object.keys(keep).forEach(function (id) { var el = document.getElementById(id); if (el && el.value === el.defaultValue) el.value = keep[id]; });
+    if (ui.peek) { $("#peek").scrollTop = peekScroll; ui.peekTop = false; }
     if (focusId) { var f = document.getElementById(focusId); if (f) { f.focus(); try { if (selStart != null && f.setSelectionRange) f.setSelectionRange(selStart, selStart); } catch (e) {} } }
     loadThumbs();
   }
@@ -842,7 +974,13 @@
   // ---------- events ----------
   document.addEventListener("click", function (e) {
     var ln = e.target.closest('a[href^="#"]');
-    if (ln) { if (!e.ctrlKey && !e.metaKey && !e.shiftKey) rememberPlace(); return; }
+    if (ln) {
+      if (e.ctrlKey || e.metaKey || e.shiftKey) return;
+      // Links to an item open in the side panel, except on the overview, which is for going places.
+      var to = readHash(ln.getAttribute("href")), inPeek = !!ln.closest("#peek");
+      if (to && to.id && (inPeek || ui.tab !== "overview")) { e.preventDefault(); openPeek(to.tab, to.id, inPeek); return; }
+      rememberPlace(); return;
+    }
     var t = e.target.closest("[data-tab],[data-act],[data-go-status],[data-auth]"); if (!t) return;
     if (t.hasAttribute("data-auth")) { ui.auth = t.getAttribute("data-auth"); ui.authMsg = null; render(); return; }
     if (t.hasAttribute("data-tab")) { ui.tab = t.getAttribute("data-tab"); ui.open = null; try { history.replaceState(null, "", "#" + ui.tab); } catch (x) {} render(); window.scrollTo(0, 0); return; }
@@ -870,8 +1008,14 @@
     else if (a === "def-restore") restoreDefect(t.getAttribute("data-id"));
     else if (a === "unblock") unlinkBlock(t.getAttribute("data-id"), t.getAttribute("data-def"));
     else if (a === "set-blocked") setField("tests", t.getAttribute("data-id"), "status", "Blocked", "result");
-    else if (a === "goto-defect") goTo("defects", t.getAttribute("data-id"));
-    else if (a === "goto-test") goTo("tests", t.getAttribute("data-id"));
+    else if (a === "goto-defect") openPeek("defects", t.getAttribute("data-id"));
+    else if (a === "goto-test") openPeek("tests", t.getAttribute("data-id"));
+    else if (a === "peek-close") { ui.peek = null; render(); }
+    else if (a === "peek-back") { ui.peek = ui.peek.slice(0, -1); ui.peekTop = true; render(); }
+    else if (a === "peek-open") { var top = ui.peek[ui.peek.length - 1]; ui.peek = null; goTo(top.tab, top.id); }
+    else if (a === "raise-defect") raiseFrom(t.getAttribute("data-id"));
+    else if (a === "nd-cancel") { ui.nd = null; render(); }
+    else if (a === "undo-free") undoFree();
     else if (a === "shot-open") openShot(t.getAttribute("data-shot"));
     else if (a === "shot-del") { ui.shotDel = t.getAttribute("data-shot"); render(); }
     else if (a === "shot-del-no") { ui.shotDel = null; render(); }
@@ -901,10 +1045,12 @@
     if (el.id === "f-dstatus") { ui.dstatus = el.value; render(); return; }
     if (el.id === "f-ptype") { ui.ptype = el.value; render(); return; }
     if (el.id === "f-prec") { ui.precorded = el.value; render(); return; }
+    if (ndCapture(el)) return;
     if (el.dataset && el.dataset.k) setField(el.dataset.k, el.dataset.id, el.dataset.f, el.value, el.dataset.l);
   });
   document.addEventListener("input", function (e) {
     var el = e.target;
+    if (ndCapture(el)) return;
     if (el.id === "f-q") { ui.q = el.value; render(); }
     else if (el.id === "f-dq") { ui.dq = el.value; render(); }
     else if (el.id === "f-pq") { ui.pq = el.value; render(); }
@@ -920,12 +1066,16 @@
     state.defects.push(rec);
     addLog(id + " added: " + sum.slice(0, 80));
     if (hosted) queue("defect", rec); else { dirty++; saveDraft(); }
+    var lk = $("#nd-link"), from = ui.nd && ui.nd.link && lk && lk.checked && find(state.tests, ui.nd.link);
+    if (from && (from.blockedBy || []).indexOf(id) < 0) { from.blockedBy = (from.blockedBy || []).concat(id); addLog(from.id + ": blocked by " + id); addLog(id + ": blocking " + from.id); saveTest(from); }
+    ui.nd = null;
     // Open the new defect (render keeps whichever one is open in the page, so close that first).
     Array.prototype.forEach.call(document.querySelectorAll("details.item[open]"), function (el) { el.open = false; });
     ui.open = id;
-    ui.notice = { kind: "", text: id + " added." + (hosted ? " Paste or add screenshots in it below." : "") }; render();
+    ui.notice = { kind: "", text: id + " added" + (from ? " and linked to " + from.id : "") + "." + (hosted ? " Paste or add screenshots in it below." : "") }; render();
   });
   document.addEventListener("keydown", function (e) {
+    if (e.key === "Escape" && ui.peek) { ui.peek = null; render(); return; }
     if ((e.ctrlKey || e.metaKey) && e.key === "s") { e.preventDefault(); if (hosted) { retryMs = 0; schedule(0); } else offlineCopy(); }
   });
   function nextDefectId() { var m = 0; state.defects.forEach(function (d) { m = Math.max(m, num(d.id)); }); return "D-" + String(m + 1).padStart(2, "0"); }
@@ -940,7 +1090,7 @@
       if (loadedFor !== user.id && !(mode === "signin" && ui.auth === "newpass")) { loadedFor = user.id; setTimeout(loadAll, 0); }
     } else if (evt === "SIGNED_OUT" || evt === "INITIAL_SESSION") {
       user = null; loadedFor = null; mode = "signin"; ui.auth = "signin"; pend = {}; pendLog = [];
-      state = { project: state.project, tests: [], parties: [], defects: [], questions: [], docs: [], log: [] }; ui.pq = ""; ui.ptype = ""; ui.precorded = "";
+      state = { project: state.project, tests: [], parties: [], defects: [], questions: [], docs: [], log: [] }; ui.pq = ""; ui.ptype = ""; ui.precorded = ""; ui.peek = null; ui.nd = null;
       render();
     }
   });

@@ -38,6 +38,8 @@ const RECORDS = [
   const item = id => `details.item[data-id="${id}"]`;
   const tabOn = async tab => (await page.locator(`[data-tab="${tab}"]`).getAttribute('aria-selected')) === 'true';
   const links = sel => page.locator(sel + ' a.ref').evaluateAll(as => as.map(a => a.textContent));
+  // Links open the side panel first; its Open button goes to the item itself.
+  const viaPanel = async () => { await page.waitForSelector('#peek'); await page.click('#peek [data-act="peek-open"]'); };
 
   // --- a test: links in its text, and what references it ---
   await page.goto(hub.base + '#tests');
@@ -53,6 +55,10 @@ const RECORDS = [
 
   // --- follow a link, then Back ---
   await page.click(item('RUL-01') + ' .field:has(> .lab:text-is("Test data")) a.ref');
+  await page.waitForSelector('#peek');
+  check('a link opens the item in the side panel', /Test party\s+TP-01/.test(await page.locator('#peek .peek-kind').innerText()));
+  check('…leaving the test open where it was', await tabOn('tests') && await page.locator(item('RUL-01') + '[open]').count() === 1);
+  await viaPanel();
   await page.waitForSelector(item('TP-01') + '[open]');
   check('a party link opens it on the Test parties tab', await tabOn('parties'));
   check('the party links the tests that use it', JSON.stringify(await links(item('TP-01') + ' .field:has(> .lab:text-is("Used by tests"))')) === '["RUL-01","RUL-02"]');
@@ -67,11 +73,13 @@ const RECORDS = [
   await page.click('[data-tab="defects"]');
   check('the defect row links its test ref', JSON.stringify(await links(item('D-02') + ' summary')) === '["RUL-02"]');
   await page.click(item('D-02') + ' summary a.ref');
+  await viaPanel();
   await page.waitForSelector(item('RUL-02') + '[open]');
   check('the link on the row opens the test', await tabOn('tests'));
   const r2 = await page.locator(item('RUL-02') + ' .field:has(> .lab:text-matches("Referenced by")) .blk-chip').allInnerTexts();
   check('the test lists the defect raised against it', r2.some(t => /D-02[\s\S]*Score ignores/.test(t)), r2);
   await page.click(item('RUL-02') + ' .blk-go:has-text("D-02")');
+  await viaPanel();
   await page.waitForSelector(item('D-02') + '[open]');
   check('…which opens the defect', await tabOn('defects'));
 
@@ -81,6 +89,7 @@ const RECORDS = [
   await page.click('[data-tab="tests"]');
   await page.click(item('RUL-01') + ' summary');
   await page.click(item('RUL-01') + ' .field:has(> .lab:text-is("Steps")) a.ref');
+  await viaPanel();
   await page.waitForSelector(item('Q1') + '[open]');
   check('a question link opens it on the Questions tab', await tabOn('questions'));
 
