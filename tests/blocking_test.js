@@ -36,6 +36,8 @@ const RECORDS = [
   const stored = (rid) => page.evaluate((rid) => (window.__db.records.find(r => r.rid === rid) || {}).data, rid);
   const saved = () => page.waitForFunction(() => /All changes saved/.test((document.querySelector('.mode') || {}).textContent || ''));
   const T1 = 'details.item[data-id="RUL-01"]', D1 = 'details.item[data-id="D-01"]';
+  // Links open the side panel first; its Open button goes to the item itself.
+  const viaPanel = async () => { await page.waitForSelector('#peek'); await page.click('#peek [data-act="peek-open"]'); };
 
   await page.goto(hub.base + '#tests');
   await page.waitForSelector(T1);
@@ -82,9 +84,11 @@ const RECORDS = [
 
   // --- jump across ---
   await page.click(D1 + ' .blk-go >> nth=1');
+  await viaPanel();
   await page.waitForSelector('details.item[data-id="RUL-02"][open]');
   check('tapping a test opens it on the Test cases tab', (await page.locator('[data-tab="tests"]').getAttribute('aria-selected')) === 'true');
   await page.click('details.item[data-id="RUL-02"] .blk-go');
+  await viaPanel();
   await page.waitForSelector(D1 + '[open]');
   check('tapping a defect opens it on the Defects tab', (await page.locator('[data-tab="defects"]').getAttribute('aria-selected')) === 'true');
   // a filter that hides the target is cleared
@@ -92,6 +96,7 @@ const RECORDS = [
   await page.click('[data-tab="tests"]');
   await page.click(T1 + ' summary');
   await page.click(T1 + ' .blk-go');
+  await viaPanel();
   await page.waitForSelector(D1 + '[open]');
   check('jumping clears a search that would hide the defect', (await page.inputValue('#f-dq')) === '');
 
