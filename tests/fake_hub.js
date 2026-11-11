@@ -58,13 +58,45 @@ window.__db = saved ? saved.db : {
       for (var i = 0; i < bin.length; i++) u[i] = bin.charCodeAt(i);
       return Promise.resolve({ data: new Blob([u], { type: m[1] }), error: null });
     },
+    move: function (from, to) {
+      window.__calls.push(['move', from, to]);
+      if (!window.__files[from]) return Promise.resolve({ data: null, error: { message: 'missing' } });
+      window.__files[to] = window.__files[from]; delete window.__files[from]; persist();
+      return Promise.resolve({ data: {}, error: null });
+    },
     remove: function (ps) { window.__calls.push(['remove', ps[0]]); delete window.__files[ps[0]]; persist(); return Promise.resolve({ data: [], error: null }); },
     createSignedUrl: function (p) { window.__calls.push(['sign', p]); persist(); return Promise.resolve({ data: { signedUrl: 'about:blank#' + encodeURIComponent(p) }, error: null }); }
   };
   window.supabase = { createClient: function () { return {
     auth: {
       onAuthStateChange: function (cb) { setTimeout(function () { cb('SIGNED_IN', { user: { id: 'u1', email: 'tester@example.com' } }); }, 0); },
-      signOut: function () { return Promise.resolve(); }
+      signOut: function () { return Promise.resolve(); },
+      // The test account's password is "right-password".
+      signInWithPassword: function (c) { window.__calls.push(['signin', c.email]); persist(); return Promise.resolve(c.password === 'right-password' ? { data: {}, error: null } : { data: null, error: { message: 'Invalid login credentials' } }); }
+    },
+    // th_clear, as the SQL function does it (see the testing_hub_clear migration).
+    rpc: function (name, args) {
+      window.__calls.push(['rpc', name, args && args.p_mode]); 
+      if (name !== 'th_clear') return Promise.resolve({ data: null, error: { message: 'unknown rpc' } });
+      var db = window.__db, at = new Date().toISOString();
+      if (args.p_mode === 'results') {
+        db.records = db.records.filter(function (r) { return r.kind !== 'defect'; });
+        db.records.forEach(function (r) {
+          if (r.kind === 'test') {
+            var st = r.data.status || 'Not run';
+            r.data.prev = st === 'Not run' || st === 'Invalid' ? (r.data.prev || '–') : st;
+            r.data.status = st === 'Invalid' ? 'Invalid' : 'Not run';
+            r.data.actual = ''; r.data.comments = ''; r.data.evidence = ''; r.data.blockedBy = []; r.data.shots = []; r.updated_at = at;
+          }
+          if (r.kind === 'party') { r.data.recorded = ''; r.updated_at = at; }
+        });
+        db.log.unshift({ at: at, text: 'New test pass started: results reset, defects removed (the previous pass is in the archive).', by: 'test' });
+      } else if (args.p_mode === 'everything') {
+        db.records = db.records.filter(function (r) { return r.kind === 'meta' && r.rid === 'project'; });
+        db.log = [{ at: at, text: 'Hub emptied for a new project (the previous contents are in the archive).', by: 'test' }];
+      } else return Promise.resolve({ data: null, error: { message: 'Unknown mode' } });
+      persist();
+      return Promise.resolve({ data: { mode: args.p_mode }, error: null });
     },
     from: q,
     storage: { from: function () { return bucket; } }

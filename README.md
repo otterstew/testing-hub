@@ -6,3 +6,4 @@ sign-in, and the database answers only the one allow-listed account.
 - `index.html`, `app.js`, `style.css`: the page
 - `config.js`: the database address and its publishable (client) key
 - `vendor/`: supabase-js 2.45.4 and SheetJS 0.18.5, kept here so the page needs no CDN
+- `db/th_clear.sql`: the server function behind "Start a new test pass" (applied to the database; kept here for reference)

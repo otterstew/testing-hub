@@ -314,7 +314,145 @@
         high.map(function (d) { return '<li class="sev-High">' + idLink("defects", d.id, "mono") + "<p>" + esc(d.summary) + "</p></li>"; }).join("") + "</ul>" : '<p class="empty">Nothing failing or blocked.</p>') +
       "<h2>Next to run</h2>" + (next.length ? '<ul class="att">' + next.map(function (t) { return '<li>' + idLink("tests", t.id, "mono") + "<p>" + (t.status === "Retest" ? pill("Retest") + " " : "") + esc(t.objective) + "</p></li>"; }).join("") + "</ul>" : '<p class="empty">Every test has a result.</p>') +
       "</div><div><h2>Open questions<small>" + oq.length + "</small></h2>" + (oq.length ? '<ul class="att">' + oq.map(function (q) { return '<li class="sev-Low">' + idLink("questions", qid(q), "mono") + "<p>" + esc(q.q) + "</p></li>"; }).join("") + "</ul>" : '<p class="empty">No open questions.</p>') +
-      "<h2>Activity</h2><ul class=\"log\">" + state.log.slice(0, 12).map(function (l) { return "<li><time>" + esc(fmt(l.at)) + "</time>" + linked(l.text) + "</li>"; }).join("") + "</ul></div></div>";
+      "<h2>Activity</h2><ul class=\"log\">" + state.log.slice(0, 12).map(function (l) { return "<li><time>" + esc(fmt(l.at)) + "</time>" + linked(l.text) + "</li>"; }).join("") + "</ul></div></div>" + vFinish();
+  }
+
+  // ---------- finishing a test pass (11 Nov 2026) ----------
+  // A test pass report to keep (printed to PDF by the browser), then a clear to start the next
+  // pass: "results" keeps the test cases, parties and questions; "everything" empties the hub.
+  // A clear asks for the hub password and the word CLEAR, saves a full copy (records, log and
+  // every file) under archive/ in the bucket, and only then runs th_clear on the server, which
+  // does the whole clear or none of it.
+  function canFinish() { return hosted && mode === "online" && !ui.readOnly; }
+  function vFinish() {
+    if (!canFinish()) return "";
+    var h = '<div class="finish"><h2>Finish this test pass</h2>' +
+      '<p class="count">Keep a record of this pass, then clear the hub for the next one.</p>' +
+      '<div class="actions"><button class="btn" data-act="report"' + (ui.reportBusy ? " disabled" : "") + ">" + (ui.reportBusy ? "Preparing the report…" : "Test pass report (PDF)") + "</button>" +
+      (ui.clearOpen ? "" : '<button class="btn" data-act="clear-open">Start a new test pass…</button>') + "</div>";
+    if (ui.clearOpen) {
+      var m = ui.clearMode || "results", busy = !!ui.clearBusy;
+      h += '<form class="clear-form" id="clear-form">' +
+        '<fieldset><legend>What to clear</legend>' +
+        '<label class="check"><input type="radio" name="clr-mode" value="results"' + (m === "results" ? " checked" : "") + "> <span><b>Reset results</b>: keep the test cases, test parties and questions. Every result goes back to Not run (its last result is kept as “before”); actual results, comments, evidence, screenshots and recordings are cleared, and the defects are removed.</span></label>" +
+        '<label class="check"><input type="radio" name="clr-mode" value="everything"' + (m === "everything" ? " checked" : "") + "> <span><b>Empty everything</b>: remove the test cases, test parties, questions, defects, documents and history, ready for a new project from a spreadsheet.</span></label>" +
+        "</fieldset>" +
+        '<p class="count">Download the <b>test pass report</b> first if you want one: the clear cannot make it afterwards. A full copy of the hub is saved in its archive before anything is cleared.</p>' +
+        '<div class="row2"><div class="field"><label for="clr-pass">Your hub password</label><input type="password" id="clr-pass" autocomplete="current-password" required></div>' +
+        '<div class="field"><label for="clr-word">Type CLEAR to confirm</label><input type="text" id="clr-word" autocomplete="off" spellcheck="false" required></div></div>' +
+        '<div class="actions"><button class="btn danger" type="submit"' + (busy ? " disabled" : "") + ">" + (busy ? esc(ui.clearBusy) : m === "everything" ? "Empty the hub" : "Reset the results") + "</button>" +
+        '<button class="btn" type="button" data-act="clear-cancel"' + (busy ? " disabled" : "") + ">Cancel</button></div></form>";
+    }
+    return h + "</div>";
+  }
+
+  // --- the report ---
+  function rfield(label, v) { return v && v !== "–" ? '<div class="r-f"><span class="r-l">' + esc(label) + '</span><div class="r-v">' + esc(v) + "</div></div>" : ""; }
+  function rshots(x) {
+    var S = x.shots || [], imgs = S.filter(function (s) { return !isVideo(s); }), vids = S.filter(isVideo);
+    return (imgs.length ? '<div class="r-shots">' + imgs.map(function (s) { return '<figure><img alt="' + esc(s.name) + '" src="' + (shotUrl[s.id] || "") + '"><figcaption>' + esc(s.name) + " · " + esc(fmt(s.added)) + "</figcaption></figure>"; }).join("") + "</div>" : "") +
+      (vids.length ? '<div class="r-f"><span class="r-l">Recordings</span><div class="r-v">' + vids.map(function (s) { return esc(s.name) + (s.secs ? " (" + mmss(s.secs) + ")" : ""); }).join("<br>") + "<br><i>Recordings can’t go in a PDF; they stay in the hub" + (" until it is cleared, then in its archive") + ".</i></div></div>" : "");
+  }
+  function reportHtml() {
+    var T = state.tests, c = counts(T), total = T.length - c.Invalid, D = state.defects.filter(live), od = D.filter(openDefect);
+    var h = '<header class="r-head"><h1>Test pass report</h1><p>' + esc(state.project) + " · made " + esc(fmt(now())) + (user && user.email ? " by " + esc(user.email) : "") + "</p></header>";
+    var row = function (label, v) { return '<div class="r-f"><span class="r-l">' + esc(label) + '</span><div class="r-v">' + esc(v) + "</div></div>"; };
+    h += '<section class="r-sum"><h2>Summary</h2>' +
+      row("Test cases run", (total - c["Not run"] - c.Retest) + " of " + total + (c.Invalid ? " (" + c.Invalid + " invalid, not counted)" : "")) +
+      ORDER.map(function (st) { return row(st, c[st]); }).join("") +
+      row("Defects", D.length + " (" + od.length + " open)") +
+      SEV.map(function (sv) { var n = od.filter(function (d) { return d.severity === sv; }).length; return n ? row("Open, " + sv, n) : ""; }).join("") +
+      row("Open questions", state.questions.filter(qOpen).length) + "</section>";
+    var last = null;
+    h += "<section><h2>Test cases</h2>" + T.map(function (t) {
+      var sec = short(t.section), head = sec !== last ? "<h3>" + esc(sec) + "</h3>" : ""; last = sec;
+      return head + '<article class="r-item"><h4><span class="mono">' + esc(t.id) + "</span> " + esc(t.objective) + ' <span class="r-st">' + esc(t.status || "Not run") + "</span></h4>" +
+        rfield("Ref", t.ref) + rfield("Pre-conditions", t.pre) + rfield("Steps", t.steps) + rfield("Test data", t.data) + rfield("Expected result", t.expected) +
+        rfield("Actual result", t.actual) + rfield("Comments", t.comments) + rfield("Evidence", t.evidence) + rfield("Before", t.prev) +
+        rfield("Blocked by", (t.blockedBy || []).join(", ")) + rshots(t) + "</article>";
+    }).join("") + "</section>";
+    h += '<section class="r-defects"><h2>Defects</h2>' + (D.length ? D.map(function (d) {
+      return '<article class="r-item"><h4><span class="mono">' + esc(d.id) + "</span> " + esc(d.summary) + ' <span class="r-st">' + esc(d.status || "Open") + " · " + esc(d.severity || "") + "</span></h4>" +
+        rfield("Raised", d.date) + rfield("Area", d.area) + rfield("Test ref", d.ref) + rfield("Steps / evidence", d.steps) + rfield("Raised with B4", d.raised) +
+        rfield("Fix version", d.fix) + rfield("Retest date", d.retestDate) + rfield("Retest result", d.retestResult) + rfield("Blocks", blockedTests(d.id).map(function (x) { return x.id; }).join(", ")) + rshots(d) + "</article>";
+    }).join("") : "<p>No defects.</p>") + "</section>";
+    return h;
+  }
+  function makeReport() {
+    if (ui.reportBusy || !sb) return;
+    var shots = [];
+    state.tests.concat(state.defects.filter(live)).forEach(function (x) { (x.shots || []).forEach(function (s) { if (!isVideo(s) && !shotUrl[s.id]) shots.push(s); }); });
+    var done = 0, failed = 0, total = shots.length;
+    ui.reportBusy = true; notify("", total ? "Preparing the report: fetching " + total + " screenshot" + (total === 1 ? "" : "s") + "…" : "Preparing the report…");
+    var next = function () {
+      var s = shots.shift(); if (!s) return Promise.resolve();
+      return sb.storage.from(BUCKET).download(s.path).then(function (r) { if (r.error) throw r.error; shotUrl[s.id] = URL.createObjectURL(r.data); }).catch(function () { failed++; }).then(function () { done++; return next(); });
+    };
+    Promise.all([next(), next(), next(), next()]).then(function () {
+      var old = document.getElementById("report"); if (old) old.remove();
+      var box = document.createElement("div"); box.id = "report"; box.innerHTML = reportHtml();
+      document.body.appendChild(box);
+      var imgs = Array.prototype.slice.call(box.querySelectorAll("img"));
+      return Promise.all(imgs.map(function (i) { return i.decode ? i.decode().catch(function () {}) : null; }));
+    }).then(function () {
+      ui.reportBusy = false;
+      notify(failed ? "warn" : "", "Report ready: choose “Save as PDF” in the print window." + (failed ? " " + failed + " screenshot" + (failed === 1 ? "" : "s") + " couldn’t be fetched and show as blanks." : ""));
+      document.body.classList.add("reporting");
+      setTimeout(function () { window.print(); }, 50);
+    });
+  }
+  window.addEventListener("afterprint", function () { document.body.classList.remove("reporting"); });
+
+  // --- the clear ---
+  function clearHub(clrMode, pass) {
+    var fail = function (msg) { ui.clearBusy = null; notify("err", msg); };
+    if (pendingCount()) return fail("Some changes are still saving. Wait for “All changes saved”, then try again.");
+    ui.clearBusy = "Checking your password…"; render();
+    sb.auth.signInWithPassword({ email: user.email, password: pass }).then(function (r) {
+      if (r.error) throw { stage: "password" };
+      ui.clearBusy = "Saving a full copy…"; render();
+      return Promise.all([
+        sb.from("th_records").select("kind,rid,data,updated_at").range(0, 9999),
+        sb.from("th_log").select("at,text,by").order("at", { ascending: false }).range(0, 99999)
+      ]);
+    }).then(function (r) {
+      if (r[0].error || r[1].error) throw { stage: "read", e: r[0].error || r[1].error };
+      var stamp = now().slice(0, 16).replace("T", " ").replace(":", "."), dir = "archive/" + stamp + " " + clrMode;
+      var records = r[0].data || [], files = [];
+      records.forEach(function (row) {
+        var d = row.data || {};
+        if (row.kind === "test" || row.kind === "defect") (d.shots || []).forEach(function (x) { if (x.path) files.push(x.path); });
+        if (row.kind === "doc" && clrMode === "everything" && d.path) files.push(d.path);
+      });
+      var snap = { kind: "testing-hub-archive", version: 1, made: now(), by: user.email, mode: clrMode, project: state.project,
+        files: files.map(function (p) { return { was: p, now: dir + "/files/" + p }; }), records: records, log: r[1].data || [] };
+      return sb.storage.from(BUCKET).upload(dir + "/hub.json", new Blob([JSON.stringify(snap)], { type: "application/json" }), { contentType: "application/json", upsert: false }).then(function (u) {
+        if (u.error) throw { stage: "archive", e: u.error };
+        return { dir: dir, files: files };
+      });
+    }).then(function (a) {
+      ui.clearBusy = clrMode === "everything" ? "Emptying the hub…" : "Resetting the results…"; render();
+      return sb.rpc("th_clear", { p_mode: clrMode }).then(function (r) {
+        if (r.error) throw { stage: "clear", e: r.error };
+        // The files move into the archive beside the copy, so the archive is whole on its own.
+        var moved = 0, left = 0, list = a.files.slice();
+        var step = function () {
+          var p = list.shift(); if (!p) return Promise.resolve();
+          return sb.storage.from(BUCKET).move(p, a.dir + "/files/" + p).then(function (m) { if (m.error) throw m.error; moved++; }).catch(function () { left++; }).then(step);
+        };
+        return Promise.all([step(), step(), step()]).then(function () { return { dir: a.dir, moved: moved, left: left }; });
+      });
+    }).then(function (a) {
+      ui.clearBusy = null; ui.clearOpen = false; ui.open = null; shotUrl = {};
+      ui.notice = { kind: a.left ? "warn" : "", text: (clrMode === "everything" ? "The hub is empty, ready for a new project." : "New test pass started: every result is back to Not run.") +
+        " The previous pass is saved in the archive (" + a.dir.replace("archive/", "") + ")." + (a.left ? " " + a.left + " file" + (a.left === 1 ? "" : "s") + " couldn’t be moved into it and stay where they were." : "") };
+      loadAll();
+    }).catch(function (x) {
+      x = x || {};
+      if (x.stage === "password") return fail("That password isn’t right, so nothing was cleared.");
+      if (x.stage === "clear") return fail("The copy was saved, but the clear didn’t run (" + ((x.e && x.e.message) || "error") + "). Nothing was cleared.");
+      fail("Couldn’t save the copy (" + ((x.e && x.e.message) || x.message || "error") + "), so nothing was cleared.");
+    });
   }
 
   function vTests() {
@@ -1128,6 +1266,9 @@
     else if (a === "shot-del-yes") deleteShot(t.getAttribute("data-k") || "defects", t.getAttribute("data-id"), t.getAttribute("data-shot"));
     else if (a === "rec-start") startRecording(t.getAttribute("data-k"), t.getAttribute("data-id"));
     else if (a === "rec-stop") stopRecording();
+    else if (a === "report") makeReport();
+    else if (a === "clear-open") { ui.clearOpen = true; ui.clearMode = "results"; render(); var cp = $("#clr-pass"); if (cp) cp.focus(); }
+    else if (a === "clear-cancel") { ui.clearOpen = false; render(); }
   });
   // Following a link, or Back and Forward between them.
   window.addEventListener("hashchange", function () { var h = readHash(); if (h) { ui.tab = h.tab; ui.go = h.id; render(); } });
@@ -1154,6 +1295,7 @@
     if (el.id === "doc-up" && el.files && el.files.length) { uploadDocs(el.files); el.value = ""; return; }
     if (el.dataset && el.dataset.shotUp && el.files && el.files.length) { addShots(el.dataset.shotK || "defects", el.dataset.shotUp, el.files); el.value = ""; return; }
     if (el.dataset && el.dataset.block) { linkBlock(el.dataset.block, el.value); return; }
+    if (el.name === "clr-mode") { ui.clearMode = el.value; var pv = $("#clr-pass") ? $("#clr-pass").value : "", wv = $("#clr-word") ? $("#clr-word").value : ""; render(); if ($("#clr-pass")) { $("#clr-pass").value = pv; $("#clr-word").value = wv; } return; }
     if (el.id === "f-area") { ui.area = el.value; render(); return; }
     if (el.id === "f-status") { ui.status = el.value; render(); return; }
     if (el.id === "f-dstatus") { ui.dstatus = el.value; render(); return; }
@@ -1171,6 +1313,14 @@
   });
   document.addEventListener("submit", function (e) {
     if (e.target.id === "auth-form") { e.preventDefault(); authSubmit(); return; }
+    if (e.target.id === "clear-form") {
+      e.preventDefault();
+      var pw = $("#clr-pass").value, word = $("#clr-word").value.trim();
+      if (word !== "CLEAR") { notify("err", "Type CLEAR, in capitals, to confirm."); return; }
+      if (!pw) return;
+      clearHub(ui.clearMode || "results", pw);
+      return;
+    }
     if (e.target.id !== "add-defect") return;
     e.preventDefault();
     var sum = $("#nd-sum").value.trim(), area = $("#nd-area").value.trim();
