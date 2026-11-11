@@ -373,6 +373,7 @@ a.o-card:hover{filter:brightness(.98)}
   --blocked: var(--heather);
   --notrun: var(--ink-3);
   --retest: var(--sea);
+  --invalid: var(--stone-2, var(--ink-3));
   --pass-bg: var(--ok-tint);
   --partial-bg: var(--warn-tint);
   --fail-bg: var(--fail-tint);
@@ -477,6 +478,7 @@ td.mono, .mono { font-family: var(--mono); font-size: var(--t-sm); white-space: 
 .s-blocked { background: var(--blocked-bg); } .s-blocked::before { background: var(--blocked); }
 .s-notrun { background: var(--stone); color: var(--ink-2); } .s-notrun::before { background: var(--notrun); }
 .s-retest { background: var(--retest-bg); } .s-retest::before { background: var(--retest); }
+.s-invalid { background: transparent; color: var(--ink-3); text-decoration: line-through; box-shadow: inset 0 0 0 1px var(--stone); } .s-invalid::before { background: var(--invalid); }
 
 /* attention list: paper rows; severity shows as a dot before the id */
 .att { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--s1); }

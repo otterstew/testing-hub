@@ -2,7 +2,9 @@
   "use strict";
   var TITLE = "Testing Hub";
   var OFFLINE_RESET = ":root{color-scheme:light}body{margin:0}img{max-width:100%}[hidden]{display:none!important}";
-  var STATUSES = ["Not run", "Retest", "Pass", "Partial pass", "Fail", "Blocked"];
+  // "Invalid" (11 Nov 2026): a test case that should not be run as written. It is left out of
+  // the run totals and progress bars, so it counts neither as done nor as still to do.
+  var STATUSES = ["Not run", "Retest", "Pass", "Partial pass", "Fail", "Blocked", "Invalid"];
   // Bar and legend order: results first, then what still needs running.
   var ORDER = ["Pass", "Partial pass", "Fail", "Blocked", "Retest", "Not run"];
   var QSTATUS = ["Open", "Asked B4", "Answered"];
@@ -20,8 +22,8 @@
   var local = function (d) { return new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 19); };
   var now = function () { return local(new Date()); };
   var fmt = function (iso) { if (!iso) return ""; return String(iso).replace("T", " ").slice(0, 16); };
-  var sclass = function (s) { return { "Pass": "s-pass", "Partial pass": "s-partial", "Fail": "s-fail", "Blocked": "s-blocked", "Retest": "s-retest" }[s] || "s-notrun"; };
-  var scolor = function (s) { return { "Pass": "var(--pass)", "Partial pass": "var(--partial)", "Fail": "var(--fail)", "Blocked": "var(--blocked)", "Retest": "var(--retest)" }[s] || "var(--notrun)"; };
+  var sclass = function (s) { return { "Pass": "s-pass", "Partial pass": "s-partial", "Fail": "s-fail", "Blocked": "s-blocked", "Retest": "s-retest", "Invalid": "s-invalid" }[s] || "s-notrun"; };
+  var scolor = function (s) { return { "Pass": "var(--pass)", "Partial pass": "var(--partial)", "Fail": "var(--fail)", "Blocked": "var(--blocked)", "Retest": "var(--retest)", "Invalid": "var(--invalid)" }[s] || "var(--notrun)"; };
   var trunc = function (v, n) { v = String(v || ""); return v.length > n ? v.slice(0, n - 1).replace(/\s+\S*$/, "") + "…" : v; };
   var short = function (sec) { return String(sec || "").replace(/\s*\(.*\)\s*$/, ""); };
   var clone = function (o) { return JSON.parse(JSON.stringify(o)); };
@@ -283,11 +285,11 @@
   }
 
   function vOverview() {
-    var T = state.tests, c = counts(T), total = T.length, done = total - c["Not run"] - c.Retest;
+    var T = state.tests, c = counts(T), total = T.length - c.Invalid, done = total - c["Not run"] - c.Retest;
     var secs = []; T.forEach(function (t) { if (secs.indexOf(t.section) < 0) secs.push(t.section); });
     var rows = secs.map(function (s) {
-      var L = T.filter(function (t) { return t.section === s; }), cc = counts(L), d = L.length - cc["Not run"] - cc.Retest;
-      return "<tr><td>" + esc(short(s)) + '</td><td class="mono">' + d + "/" + L.length + '</td><td><div class="areabar">' + segs(cc, L.length) + '</div></td><td class="mono">' + cc.Pass + '</td><td class="mono">' + cc.Fail + '</td><td class="mono">' + cc.Blocked + "</td></tr>";
+      var L = T.filter(function (t) { return t.section === s; }), cc = counts(L), n = L.length - cc.Invalid, d = n - cc["Not run"] - cc.Retest;
+      return "<tr><td>" + esc(short(s)) + '</td><td class="mono">' + d + "/" + n + '</td><td><div class="areabar">' + segs(cc, n) + '</div></td><td class="mono">' + cc.Pass + '</td><td class="mono">' + cc.Fail + '</td><td class="mono">' + cc.Blocked + "</td></tr>";
     }).join("");
     var D = state.defects.filter(live), od = D.filter(openDefect);
     var dsum = SEV.map(function (sv) {
@@ -299,7 +301,8 @@
     var oq = state.questions.filter(qOpen);
     var next = T.filter(function (t) { return t.status === "Retest"; }).concat(T.filter(function (t) { return toRun(t) && t.status !== "Retest"; })).slice(0, 5);
     return '<section class="summary"><div class="panel"><div class="eyebrow">Test cases</div><div class="big"><strong>' + done + "</strong><span>of " + total + " run · " + c.Pass + " passed</span></div>" +
-      '<div class="seg">' + segs(c, total) + '</div><div class="legend">' + ORDER.map(function (s) { return '<button data-go-status="' + esc(s) + '"><span class="dot" style="background:' + scolor(s) + '"></span>' + esc(s) + ' <span class="num">' + c[s] + "</span></button>"; }).join("") + "</div></div>" +
+      '<div class="seg">' + segs(c, total) + '</div><div class="legend">' + ORDER.map(function (s) { return '<button data-go-status="' + esc(s) + '"><span class="dot" style="background:' + scolor(s) + '"></span>' + esc(s) + ' <span class="num">' + c[s] + "</span></button>"; }).join("") +
+        (c.Invalid ? '<button data-go-status="Invalid" title="Left out of the totals"><span class="dot" style="background:' + scolor("Invalid") + '"></span>Invalid, not counted <span class="num">' + c.Invalid + "</span></button>" : "") + "</div></div>" +
       '<div class="panel"><div class="eyebrow">Defects</div><div class="big"><strong>' + od.length + "</strong><span>open of " + D.length + '</span></div><div class="defsum">' + dsum + "</div></div></section>" +
       "<h2>By area<small>run / total, then the split by result</small></h2>" +
       '<div class="tablewrap"><table><thead><tr><th>Area</th><th>Run</th><th>Results</th><th>Pass</th><th>Fail</th><th>Blocked</th></tr></thead><tbody>' + rows + "</tbody></table></div>" +
@@ -326,11 +329,13 @@
     L.forEach(function (t) {
       if (short(t.section) !== last) { last = short(t.section); html += '<div class="sec">' + esc(last) + "</div>"; }
       html += '<details class="item" data-id="' + esc(t.id) + '"' + (ui.open === t.id ? " open" : "") + '><summary><span class="mono">' + esc(t.id) + '</span><span class="obj">' + esc(t.objective) + "<small>" + [linked(t.ref, t.id), t.prev ? "before: " + esc(t.prev) : "", t.blockedBy && t.blockedBy.length ? "blocked by " + t.blockedBy.map(function (id) { return idLink("defects", id); }).join(", ") : ""].filter(Boolean).join(" · ") + "</small></span>" + pill(t.status) + "</summary>" +
-        '<div class="body"><div class="field" style="gap:10px">' +
+        '<div class="body"><div class="field" style="gap:10px">' + (ui.wording === t.id && !ui.readOnly ? wordingHtml(t) :
         (t.pre ? '<div class="field"><span class="lab">Pre-conditions</span><div class="txt">' + linked(t.pre, t.id) + "</div></div>" : "") +
         '<div class="field"><span class="lab">Steps</span><div class="txt">' + linked(t.steps, t.id) + "</div></div>" +
         (t.data && t.data !== "–" ? '<div class="field"><span class="lab">Test data</span><div class="txt">' + linked(t.data, t.id) + "</div></div>" : "") +
-        '<div class="field"><span class="lab">Expected result</span><div class="txt">' + linked(t.expected, t.id) + "</div></div>" + referencedByHtml(t.id, t.blockedBy) + "</div>" +
+        '<div class="field"><span class="lab">Expected result</span><div class="txt">' + linked(t.expected, t.id) + "</div></div>" +
+        (ui.readOnly ? "" : '<div><button class="btn" data-act="edit-wording" data-id="' + esc(t.id) + '">Edit the wording</button></div>')) +
+        referencedByHtml(t.id, t.blockedBy) + "</div>" +
         '<div class="edit"><div class="row2"><div class="field"><label for="st-' + esc(t.id) + '">Result</label><select id="st-' + esc(t.id) + '" data-k="tests" data-f="status" data-l="result" data-id="' + esc(t.id) + '"' + (ui.readOnly ? " disabled" : "") + ">" + STATUSES.map(function (s) { return "<option" + (s === (t.status || "Not run") ? " selected" : "") + ">" + esc(s) + "</option>"; }).join("") + "</select></div>" +
         '<div class="field"><label for="ev-' + esc(t.id) + '">Evidence</label><input type="text" id="ev-' + esc(t.id) + '" data-k="tests" data-f="evidence" data-l="evidence" data-id="' + esc(t.id) + '" value="' + esc(t.evidence) + '"' + (ui.readOnly ? " disabled" : "") + "></div></div>" +
         '<div class="field"><label for="ac-' + esc(t.id) + '">Actual result</label><textarea id="ac-' + esc(t.id) + '" data-k="tests" data-f="actual" data-l="actual result" data-id="' + esc(t.id) + '"' + (ui.readOnly ? " disabled" : "") + ">" + esc(t.actual) + "</textarea></div>" +
@@ -341,6 +346,17 @@
   }
 
   // ---------- defects blocking tests ----------
+  // A test's own wording, editable in place (11 Nov 2026), so a correction no longer means
+  // exporting the spreadsheet, changing it and uploading it again. Each box saves when it loses
+  // focus, like every other field, and the change is logged.
+  var WORDING = [["objective", "Objective"], ["pre", "Pre-conditions"], ["steps", "Steps"], ["data", "Test data"], ["expected", "Expected result"]];
+  function wordingHtml(t) {
+    return WORDING.map(function (w) {
+      var id = "tw-" + w[0] + "-" + t.id;
+      return '<div class="field"><label for="' + esc(id) + '">' + w[1] + '</label><textarea id="' + esc(id) + '" data-k="tests" data-f="' + w[0] + '" data-l="' + w[1].toLowerCase() + '" data-id="' + esc(t.id) + '">' + esc(t[w[0]]) + "</textarea></div>";
+    }).join("") + '<div><button class="btn" data-act="done-wording">Done</button></div>';
+  }
+
   // A test keeps the defects blocking it in blockedBy: ["D-01", ...]. The defect
   // side is worked out from the tests, so the link lives in one place only.
   function blockedTests(did) { return state.tests.filter(function (t) { return (t.blockedBy || []).indexOf(did) >= 0; }); }
@@ -954,7 +970,7 @@
       ? chip + '<button class="btn" data-act="reload" title="Load the latest from the hub">Refresh</button><label class="btn" for="imp">Upload spreadsheet</label><input type="file" id="imp" accept=".xlsx,.xls" hidden><button class="btn" data-act="export">Export spreadsheet</button><button class="btn" data-act="offline">Download offline copy</button><button class="btn" data-act="signout" title="' + esc(user && user.email) + '">Sign out</button>'
       : chip + '<label class="btn" for="imp">Upload spreadsheet</label><input type="file" id="imp" accept=".xlsx,.xls" hidden><button class="btn" data-act="export">Export spreadsheet</button><button class="btn primary" data-act="offline">Save offline copy' + (dirty ? " (" + dirty + ")" : "") + "</button>";
     var sub = esc(state.project) + (hosted ? (state.updated ? " · last change " + esc(fmt(state.updated)) : "") : " · copy " + esc(state.rev) + " · " + esc(fmt(state.updated)));
-    var tabs = [["overview", "Overview", ""], ["tests", "Test cases", state.tests.length - c["Not run"] - c.Retest + "/" + state.tests.length], ["defects", "Defects", od + " open"], ["parties", "Test parties", state.parties.length], ["questions", "Questions", state.questions.filter(qOpen).length + " open"], ["documents", "Documents", state.docs.length]];
+    var tabs = [["overview", "Overview", ""], ["tests", "Test cases", state.tests.length - c.Invalid - c["Not run"] - c.Retest + "/" + (state.tests.length - c.Invalid)], ["defects", "Defects", od + " open"], ["parties", "Test parties", state.parties.length], ["questions", "Questions", state.questions.filter(qOpen).length + " open"], ["documents", "Documents", state.docs.length]];
     root.innerHTML = '<header class="bar"><div class="bar-in"><div class="brand"><b>' + TITLE + "</b><span>" + sub + '</span></div><div class="actions">' + acts + '</div></div><nav class="tabs" role="tablist">' +
       tabs.map(function (t) { return '<button class="tab" role="tab" data-tab="' + t[0] + '" aria-selected="' + (ui.tab === t[0]) + '">' + t[1] + (t[2] !== "" ? '<span class="n">' + esc(t[2]) + "</span>" : "") + "</button>"; }).join("") + "</nav></header>" +
       '<main class="wrap">' + vNotice() + (ui.tab === "tests" ? vTests() : ui.tab === "defects" ? vDefects() : ui.tab === "parties" ? vParties() : ui.tab === "questions" ? vQuestions() : ui.tab === "documents" ? vDocuments() : vOverview()) + "</main>" +
@@ -972,6 +988,9 @@
   }
 
   // ---------- events ----------
+  document.addEventListener("mousedown", function (e) {
+    if (e.target.closest && e.target.closest('[data-act="done-wording"]')) e.preventDefault();
+  });
   document.addEventListener("click", function (e) {
     var ln = e.target.closest('a[href^="#"]');
     if (ln) {
@@ -1014,6 +1033,15 @@
     else if (a === "peek-back") { ui.peek = ui.peek.slice(0, -1); ui.peekTop = true; render(); }
     else if (a === "peek-open") { var top = ui.peek[ui.peek.length - 1]; ui.peek = null; goTo(top.tab, top.id); }
     else if (a === "raise-defect") raiseFrom(t.getAttribute("data-id"));
+    else if (a === "edit-wording") { ui.wording = t.getAttribute("data-id"); ui.open = ui.wording; render(); var f = document.getElementById("tw-objective-" + ui.wording); if (f) f.focus(); }
+    else if (a === "done-wording") {
+      // Done keeps the focus (see the mousedown below), so the box still being typed in is saved
+      // here rather than by a blur that would redraw the page under the click.
+      var fe = document.activeElement;
+      ui.wording = null;
+      if (fe && fe.dataset && fe.dataset.k) setField(fe.dataset.k, fe.dataset.id, fe.dataset.f, fe.value, fe.dataset.l);
+      render();
+    }
     else if (a === "nd-cancel") { ui.nd = null; render(); }
     else if (a === "undo-free") undoFree();
     else if (a === "shot-open") openShot(t.getAttribute("data-shot"));
