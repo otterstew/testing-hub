@@ -342,7 +342,7 @@
         '<div class="edit"><div class="row2"><div class="field"><label for="st-' + esc(t.id) + '">Result</label><select id="st-' + esc(t.id) + '" data-k="tests" data-f="status" data-l="result" data-id="' + esc(t.id) + '"' + (ui.readOnly ? " disabled" : "") + ">" + STATUSES.map(function (s) { return "<option" + (s === (t.status || "Not run") ? " selected" : "") + ">" + esc(s) + "</option>"; }).join("") + "</select></div>" +
         '<div class="field"><label for="ev-' + esc(t.id) + '">Evidence</label><input type="text" id="ev-' + esc(t.id) + '" data-k="tests" data-f="evidence" data-l="evidence" data-id="' + esc(t.id) + '" value="' + esc(t.evidence) + '"' + (ui.readOnly ? " disabled" : "") + "></div></div>" +
         '<div class="field"><label for="ac-' + esc(t.id) + '">Actual result</label><textarea id="ac-' + esc(t.id) + '" data-k="tests" data-f="actual" data-l="actual result" data-id="' + esc(t.id) + '"' + (ui.readOnly ? " disabled" : "") + ">" + esc(t.actual) + "</textarea></div>" +
-        '<div class="field"><label for="co-' + esc(t.id) + '">Comments</label><textarea id="co-' + esc(t.id) + '" data-k="tests" data-f="comments" data-l="comments" data-id="' + esc(t.id) + '"' + (ui.readOnly ? " disabled" : "") + ">" + esc(t.comments) + "</textarea></div>" + blockedByHtml(t) +
+        '<div class="field"><label for="co-' + esc(t.id) + '">Comments</label><textarea id="co-' + esc(t.id) + '" data-k="tests" data-f="comments" data-l="comments" data-id="' + esc(t.id) + '"' + (ui.readOnly ? " disabled" : "") + ">" + esc(t.comments) + "</textarea></div>" + shotsHtml(t, "tests") + blockedByHtml(t) +
         (ui.readOnly ? "" : '<div><button class="btn" data-act="raise-defect" data-id="' + esc(t.id) + '">Raise a defect from this test</button></div>') + "</div></div></details>";
     });
     return html + (L.length ? "" : '<p class="empty">No tests match these filters.</p>') + "</div>";
@@ -461,7 +461,7 @@
     }
     html += '<div class="list">' + L.map(function (d) {
       return '<details class="item" data-id="' + esc(d.id) + '"' + (ui.open === d.id ? " open" : "") + '><summary><span class="mono">' + esc(d.id) + '</span><span class="obj">' + esc(d.summary) + "<small>" + esc(d.area) + (d.ref ? " · " + linked(d.ref, d.id) : "") + " · " + esc(d.date) + (d.shots && d.shots.length ? " · " + d.shots.length + " screenshot" + (d.shots.length === 1 ? "" : "s") : "") + (blockedTests(d.id).length ? " · blocks " + blockedTests(d.id).length + " test" + (blockedTests(d.id).length === 1 ? "" : "s") : "") + "</small></span>" + '<span class="pills">' + dstatusPill(d) + sevPill(d.severity) + "</span></summary>" +
-        '<div class="body"><div class="field" style="gap:10px"><div class="field"><span class="lab">Steps / evidence</span><div class="txt">' + linked(d.steps || "–", d.id) + "</div></div>" + shotsHtml(d) + blockingHtml(d) + referencedByHtml(d.id, blockedTests(d.id).map(function (t) { return t.id; })) +
+        '<div class="body"><div class="field" style="gap:10px"><div class="field"><span class="lab">Steps / evidence</span><div class="txt">' + linked(d.steps || "–", d.id) + "</div></div>" + shotsHtml(d, "defects") + blockingHtml(d) + referencedByHtml(d.id, blockedTests(d.id).map(function (t) { return t.id; })) +
         '<div class="field"><label for="dsum-' + esc(d.id) + '">Summary</label><textarea id="dsum-' + esc(d.id) + '" data-k="defects" data-f="summary" data-l="summary" data-id="' + esc(d.id) + '"' + (ui.readOnly ? " disabled" : "") + ">" + esc(d.summary) + "</textarea></div></div>" +
         '<div class="edit"><div class="row2"><div class="field"><label for="ds-' + esc(d.id) + '">Status</label><select id="ds-' + esc(d.id) + '" data-k="defects" data-f="status" data-l="status" data-id="' + esc(d.id) + '"' + (ui.readOnly ? " disabled" : "") + ">" + (DSTATUS.indexOf(d.status) < 0 ? "<option selected>" + esc(d.status) + "</option>" : "") + DSTATUS.map(function (s) { return "<option" + (s === d.status ? " selected" : "") + ">" + esc(s) + "</option>"; }).join("") + "</select></div>" +
         '<div class="field"><label for="dv-' + esc(d.id) + '">Severity</label><select id="dv-' + esc(d.id) + '" data-k="defects" data-f="severity" data-l="severity" data-id="' + esc(d.id) + '"' + (ui.readOnly ? " disabled" : "") + ">" + SEV.map(function (s) { return "<option" + (s === d.severity ? " selected" : "") + ">" + s + "</option>"; }).join("") + "</select></div></div>" +
@@ -633,35 +633,50 @@
 
   function notify(kind, text) { ui.notice = { kind: kind, text: text }; render(); }
 
-  // ---------- defect screenshots ----------
-  // Each defect carries shots: [{ id, name, path, size, type, added, by }]. The
-  // images sit in the same private bucket as the documents, under
-  // defects/<defect id>/, and are fetched with the signed-in session, so a
-  // thumbnail is a blob: URL (the page's CSP allows blob: and data: images only).
+  // ---------- screenshots and screen recordings ----------
+  // Defects and test cases carry shots: [{ id, name, path, size, type, added, by }]. The files
+  // sit in the same private bucket as the documents, under defects/<id>/ or tests/<id>/, and
+  // are fetched with the signed-in session, so a thumbnail is a blob: URL (the page's CSP
+  // allows blob: and data: images only). A recording (video/*) shows as a tile and opens in
+  // a new tab through a signed link; it is never downloaded just to draw the list.
   var shotUrl = {}, shotLoading = {};
+  var SHOT_DIR = { defects: "defects", tests: "tests" };
+  function shotRec(k, id) { return find(state[k] || [], id); }
+  function isVideo(x) { return /^video\//.test(x.type || ""); }
   function canShoot(d) { return hosted && mode === "online" && !ui.readOnly && live(d); }
-  function shotsHtml(d) {
+  function shotsHtml(d, k) {
+    k = k || "defects";
     var S = d.shots || [], can = canShoot(d);
     if (!S.length && !can) return "";
-    var h = '<div class="field"><span class="lab">Screenshots' + (S.length ? " · " + S.length : "") + "</span>";
+    var nv = S.filter(isVideo).length, ni = S.length - nv;
+    var label = can && CAN_REC ? "Screenshots and recordings" : nv ? "Screenshots and recordings" : "Screenshots";
+    var h = '<div class="field"><span class="lab">' + label + (S.length ? " · " + [ni ? ni + " image" + (ni === 1 ? "" : "s") : "", nv ? nv + " recording" + (nv === 1 ? "" : "s") : ""].filter(Boolean).join(", ") : "") + "</span>";
     if (S.length) h += '<div class="shots">' + S.map(function (x) {
       var del = !can ? "" : ui.shotDel === x.id
-        ? '<div class="shot-ask"><button class="btn danger" data-act="shot-del-yes" data-id="' + esc(d.id) + '" data-shot="' + esc(x.id) + '">Delete</button><button class="btn" data-act="shot-del-no">Keep</button></div>'
-        : '<button class="shot-x" data-act="shot-del" data-shot="' + esc(x.id) + '" title="Remove this screenshot" aria-label="Remove ' + esc(x.name) + '">×</button>';
-      return '<figure class="shot">' + (hosted
-        ? '<button class="shot-img" data-act="shot-open" data-id="' + esc(d.id) + '" data-shot="' + esc(x.id) + '" title="Open full size"><img alt="' + esc(x.name) + '" data-shot-img="' + esc(x.id) + '"' + (shotUrl[x.id] ? ' src="' + shotUrl[x.id] + '"' : "") + "></button>"
-        : '<div class="shot-img off">' + esc(x.name) + "</div>") +
-        "<figcaption>" + esc(fmt(x.added)) + "</figcaption>" + del + "</figure>";
+        ? '<div class="shot-ask"><button class="btn danger" data-act="shot-del-yes" data-k="' + k + '" data-id="' + esc(d.id) + '" data-shot="' + esc(x.id) + '">Delete</button><button class="btn" data-act="shot-del-no">Keep</button></div>'
+        : '<button class="shot-x" data-act="shot-del" data-shot="' + esc(x.id) + '" title="Remove this ' + (isVideo(x) ? "recording" : "screenshot") + '" aria-label="Remove ' + esc(x.name) + '">×</button>';
+      var face = !hosted ? '<div class="shot-img off">' + esc(x.name) + "</div>"
+        : isVideo(x) ? '<button class="shot-img shot-video" data-act="shot-open" data-shot="' + esc(x.id) + '" title="Play the recording (opens in a new tab)"><span class="play" aria-hidden="true">▶</span><span>Recording' + (x.secs ? " · " + mmss(x.secs) : "") + "</span><span class=\"count\">" + esc(mb(x.size)) + "</span></button>"
+        : '<button class="shot-img" data-act="shot-open" data-shot="' + esc(x.id) + '" title="Open full size"><img alt="' + esc(x.name) + '" data-shot-img="' + esc(x.id) + '"' + (shotUrl[x.id] ? ' src="' + shotUrl[x.id] + '"' : "") + "></button>";
+      return '<figure class="shot">' + face + "<figcaption>" + esc(fmt(x.added)) + "</figcaption>" + del + "</figure>";
     }).join("") + "</div>";
-    if (can) h += '<div class="shot-add"><label class="btn" for="shot-up-' + esc(d.id) + '">' + (ui.shotBusy === d.id ? "Uploading…" : "Add screenshots") + '</label><input type="file" id="shot-up-' + esc(d.id) + '" data-shot-up="' + esc(d.id) + '" accept="image/*" multiple hidden><span class="count">or paste one (Ctrl+V / ⌘V) while this defect is open</span></div>';
-    else if (!hosted && S.length) h += '<p class="count">Open the online hub to see them.</p>';
+    if (can) {
+      var busy = ui.shotBusy === d.id, mine = recording && recording.id === d.id && recording.k === k;
+      h += '<div class="shot-add"><label class="btn" for="shot-up-' + k + "-" + esc(d.id) + '">' + (busy ? "Uploading…" : "Add screenshots") + '</label><input type="file" id="shot-up-' + k + "-" + esc(d.id) + '" data-shot-up="' + esc(d.id) + '" data-shot-k="' + k + '" accept="image/*,video/*" multiple hidden>' +
+        (CAN_REC ? (mine ? '<button class="btn danger" data-act="rec-stop" id="rec-btn">■ Stop recording · <span id="rec-time">' + mmss(recSecs()) + "</span></button>"
+          : '<button class="btn" data-act="rec-start" data-k="' + k + '" data-id="' + esc(d.id) + '"' + (recording || busy ? " disabled" : "") + ">● Record screen</button>") : "") +
+        '<span class="count">or paste one (Ctrl+V / ⌘V) while this is open' + (CAN_REC ? ". Recordings stop by themselves at " + REC_MAX_MIN + " minutes" : "") + "</span></div>";
+    } else if (!hosted && S.length) h += '<p class="count">Open the online hub to see them.</p>';
     return h + "</div>";
   }
+  function mmss(n) { n = Math.max(0, Math.round(n)); return Math.floor(n / 60) + ":" + String(n % 60).padStart(2, "0"); }
+  function mb(b) { return b ? (b / 1048576 < 0.1 ? "<0.1" : (b / 1048576).toFixed(1)) + " MB" : ""; }
   function findShot(id) {
-    for (var i = 0; i < state.defects.length; i++) { var S = state.defects[i].shots || []; for (var j = 0; j < S.length; j++) if (S[j].id === id) return S[j]; }
+    var lists = [state.defects, state.tests];
+    for (var L = 0; L < lists.length; L++) for (var i = 0; i < lists[L].length; i++) { var S = lists[L][i].shots || []; for (var j = 0; j < S.length; j++) if (S[j].id === id) return S[j]; }
     return null;
   }
-  // Thumbnails load only for the defect that is open.
+  // Thumbnails load only for the item that is open, and only for images.
   function loadThumbs() {
     if (!sb) return;
     Array.prototype.forEach.call(document.querySelectorAll("details.item[open] img[data-shot-img]:not([src])"), function (img) {
@@ -676,21 +691,23 @@
     });
   }
   var IMG_EXT = { "image/png": "png", "image/jpeg": "jpg", "image/gif": "gif", "image/webp": "webp", "image/bmp": "bmp" };
-  function addShots(id, files) {
-    var list = Array.prototype.filter.call(files, function (f) { return /^image\//.test(f.type); });
-    if (!find(state.defects, id) || !sb) return;
-    if (!list.length) { notify("err", "Only images can be added as screenshots."); return; }
+  function persistShots(k, rec) { if (k === "tests") saveTest(rec); else persistDefect(rec); }
+  function addShots(k, id, files, meta) {
+    var list = Array.prototype.filter.call(files, function (f) { return /^(image|video)\//.test(f.type); });
+    if (!shotRec(k, id) || !sb) return;
+    if (!list.length) { notify("err", "Only images and videos can be added here."); return; }
     var added = [], problems = [];
     ui.shotBusy = id; ui.open = id; render();
     var next = function () {
       if (!list.length) {
         ui.shotBusy = null;
-        // Merge into the defect as it is now: a refresh may have replaced it meanwhile.
-        var d = find(state.defects, id);
+        // Merge into the item as it is now: a refresh may have replaced it meanwhile.
+        var d = shotRec(k, id);
         if (d && added.length) {
           d.shots = (d.shots || []).concat(added);
-          addLog(id + ": " + (added.length === 1 ? "screenshot added (" + added[0].name + ")" : added.length + " screenshots added"));
-          persistDefect(d);
+          var vids = added.filter(isVideo).length, imgs = added.length - vids;
+          addLog(id + ": " + [imgs ? (imgs === 1 ? "screenshot added" : imgs + " screenshots added") : "", vids ? (vids === 1 ? "recording added" : vids + " recordings added") : ""].filter(Boolean).join(", ") + (added.length === 1 ? " (" + added[0].name + ")" : ""));
+          persistShots(k, d);
         }
         if (problems.length) notify(added.length ? "warn" : "err", problems.join(" ")); else render();
         return;
@@ -699,25 +716,27 @@
       // A pasted image arrives as "image.png"; give it a dated name instead.
       var name = f.name && !/^image\.(png|jpe?g|gif|webp|bmp)$/i.test(f.name) ? f.name : "Screenshot " + now().replace("T", " ").replace(/:/g, ".") + "." + (IMG_EXT[f.type] || "png");
       if (f.size > 52428800) { problems.push(name + ": over the 50 MB limit."); return next(); }
-      var path = "defects/" + id.replace(/[^\w-]+/g, "_") + "/" + sid + "-" + name.replace(/[^\w.\- ]+/g, "_");
+      var path = SHOT_DIR[k] + "/" + id.replace(/[^\w-]+/g, "_") + "/" + sid + "-" + name.replace(/[^\w.\- ]+/g, "_");
       sb.storage.from(BUCKET).upload(path, f, { contentType: f.type, upsert: false }).then(function (r) {
         if (r.error) throw r.error;
-        added.push({ id: sid, name: name, path: path, size: f.size, type: f.type, added: now(), by: (user && user.email) || "" });
-        shotUrl[sid] = URL.createObjectURL(f);
+        var x = { id: sid, name: name, path: path, size: f.size, type: f.type, added: now(), by: (user && user.email) || "" };
+        if (meta && meta.secs) x.secs = meta.secs;
+        added.push(x);
+        if (!/^video\//.test(f.type)) shotUrl[sid] = URL.createObjectURL(f);
         next();
       }).catch(function (err) { problems.push(name + ": upload failed (" + ((err && err.message) || "error") + ")."); next(); });
     };
     next();
   }
-  function deleteShot(id, sid) {
-    var d = find(state.defects, id), x = d && (d.shots || []).filter(function (s) { return s.id === sid; })[0];
+  function deleteShot(k, id, sid) {
+    var d = shotRec(k, id), x = d && (d.shots || []).filter(function (s) { return s.id === sid; })[0];
     if (!x) return;
     sb.storage.from(BUCKET).remove([x.path]).then(function (r) {
       if (r.error) throw r.error;
-      var cur = find(state.defects, id) || d;
+      var cur = shotRec(k, id) || d;
       cur.shots = (cur.shots || []).filter(function (s) { return s.id !== sid; });
-      addLog(id + ": screenshot removed (" + x.name + ")");
-      persistDefect(cur); ui.shotDel = null; render();
+      addLog(id + ": " + (isVideo(x) ? "recording" : "screenshot") + " removed (" + x.name + ")");
+      persistShots(k, cur); ui.shotDel = null; render();
     }).catch(function (e) { ui.shotDel = null; notify("err", "Couldn’t remove " + x.name + " (" + ((e && e.message) || "error") + ")."); });
   }
   function openShot(sid) {
@@ -728,6 +747,51 @@
       if (w) { w.opener = null; w.location.href = r.data.signedUrl; } else location.href = r.data.signedUrl;
     }).catch(function (e) { if (w) w.close(); notify("err", "Couldn’t open " + x.name + " (" + ((e && e.message) || "error") + ")."); });
   }
+
+  // ---------- screen recording (11 Nov 2026) ----------
+  // "Record screen" asks the browser to share a window, tab or screen, records it until Stop
+  // (or until sharing ends, or REC_MAX_MIN minutes), then attaches the clip like a screenshot.
+  // Computers only: phones' browsers don't offer screen sharing, so the button isn't shown.
+  // About 1 Mbit/s keeps five minutes near 38 MB, under the bucket's 50 MB limit.
+  var REC_MAX_MIN = 5, REC_BITS = 1000000;
+  var CAN_REC = !!(typeof navigator !== "undefined" && navigator.mediaDevices && navigator.mediaDevices.getDisplayMedia && typeof MediaRecorder !== "undefined");
+  var recording = null;
+  function recSecs() { return recording ? (Date.now() - recording.started) / 1000 : 0; }
+  function recType() {
+    var c = ["video/webm;codecs=vp9", "video/webm;codecs=vp8", "video/webm", "video/mp4"];
+    for (var i = 0; i < c.length; i++) if (!MediaRecorder.isTypeSupported || MediaRecorder.isTypeSupported(c[i])) return c[i];
+    return "";
+  }
+  function startRecording(k, id) {
+    if (recording || !CAN_REC || !shotRec(k, id)) return;
+    navigator.mediaDevices.getDisplayMedia({ video: { frameRate: 15 }, audio: false }).then(function (stream) {
+      var type = recType(), chunks = [];
+      var mr = new MediaRecorder(stream, type ? { mimeType: type, videoBitsPerSecond: REC_BITS } : { videoBitsPerSecond: REC_BITS });
+      recording = { k: k, id: id, mr: mr, stream: stream, started: Date.now(), type: (type || "video/webm").split(";")[0] };
+      mr.ondataavailable = function (e) { if (e.data && e.data.size) chunks.push(e.data); };
+      mr.onstop = function () {
+        var r = recording; recording = null;
+        clearInterval(r.tick); clearTimeout(r.cap);
+        r.stream.getTracks().forEach(function (t) { t.stop(); });
+        var secs = Math.round((Date.now() - r.started) / 1000);
+        if (!chunks.length) { notify("err", "The recording was empty, so nothing was added."); return; }
+        var blob = new Blob(chunks, { type: r.type }), ext = /mp4/.test(r.type) ? "mp4" : "webm";
+        var file = new File([blob], "Recording " + now().replace("T", " ").replace(/:/g, ".") + "." + ext, { type: r.type });
+        addShots(r.k, r.id, [file], { secs: secs });
+      };
+      // Sharing stopped from the browser's own bar counts as Stop.
+      stream.getVideoTracks().forEach(function (t) { t.onended = stopRecording; });
+      recording.tick = setInterval(function () { var el = document.getElementById("rec-time"); if (el) el.textContent = mmss(recSecs()); }, 1000);
+      recording.cap = setTimeout(stopRecording, REC_MAX_MIN * 60000);
+      mr.start(1000);
+      ui.open = id; render();
+    }).catch(function (e) {
+      // Cancelling the browser's share prompt is a choice, not an error.
+      if (e && (e.name === "NotAllowedError" || e.name === "AbortError")) return;
+      notify("err", "Couldn’t start recording (" + ((e && e.message) || "error") + ").");
+    });
+  }
+  function stopRecording() { if (recording && recording.mr.state !== "inactive") recording.mr.stop(); }
 
   // ---------- documents ----------
   function vDocuments() {
@@ -1061,7 +1125,9 @@
     else if (a === "shot-open") openShot(t.getAttribute("data-shot"));
     else if (a === "shot-del") { ui.shotDel = t.getAttribute("data-shot"); render(); }
     else if (a === "shot-del-no") { ui.shotDel = null; render(); }
-    else if (a === "shot-del-yes") deleteShot(t.getAttribute("data-id"), t.getAttribute("data-shot"));
+    else if (a === "shot-del-yes") deleteShot(t.getAttribute("data-k") || "defects", t.getAttribute("data-id"), t.getAttribute("data-shot"));
+    else if (a === "rec-start") startRecording(t.getAttribute("data-k"), t.getAttribute("data-id"));
+    else if (a === "rec-stop") stopRecording();
   });
   // Following a link, or Back and Forward between them.
   window.addEventListener("hashchange", function () { var h = readHash(); if (h) { ui.tab = h.tab; ui.go = h.id; render(); } });
@@ -1073,20 +1139,20 @@
     var id = e.target.getAttribute("data-id");
     if (e.target.open) { ui.open = id; loadThumbs(); } else if (ui.open === id) ui.open = null;
   }, true);
-  // Pasting an image while a defect is open adds it as a screenshot.
+  // Pasting an image while a defect or test is open adds it as a screenshot.
   document.addEventListener("paste", function (e) {
-    if (ui.tab !== "defects") return;
-    var openEl = document.querySelector("details.item[open]"), id = openEl && openEl.getAttribute("data-id"), d = id && find(state.defects, id);
+    if (ui.tab !== "defects" && ui.tab !== "tests") return;
+    var openEl = document.querySelector("details.item[open]"), id = openEl && openEl.getAttribute("data-id"), d = id && find(state[ui.tab], id);
     if (!d || !canShoot(d)) return;
     var files = Array.prototype.slice.call((e.clipboardData && e.clipboardData.files) || []).filter(function (f) { return /^image\//.test(f.type); });
     if (!files.length) return;
-    e.preventDefault(); addShots(id, files);
+    e.preventDefault(); addShots(ui.tab, id, files);
   });
   document.addEventListener("change", function (e) {
     var el = e.target;
     if (el.id === "imp" && el.files && el.files[0]) { importFile(el.files[0]); el.value = ""; return; }
     if (el.id === "doc-up" && el.files && el.files.length) { uploadDocs(el.files); el.value = ""; return; }
-    if (el.dataset && el.dataset.shotUp && el.files && el.files.length) { addShots(el.dataset.shotUp, el.files); el.value = ""; return; }
+    if (el.dataset && el.dataset.shotUp && el.files && el.files.length) { addShots(el.dataset.shotK || "defects", el.dataset.shotUp, el.files); el.value = ""; return; }
     if (el.dataset && el.dataset.block) { linkBlock(el.dataset.block, el.value); return; }
     if (el.id === "f-area") { ui.area = el.value; render(); return; }
     if (el.id === "f-status") { ui.status = el.value; render(); return; }

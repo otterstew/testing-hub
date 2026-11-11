@@ -573,6 +573,9 @@ table.ctl th { position: static; width: 34%; background: var(--paper); color: va
 .shot-x:hover { color: var(--fail); }
 .shot-ask { display: flex; gap: var(--s2); flex-wrap: wrap; }
 .shot-add { display: flex; gap: var(--s3); align-items: center; flex-wrap: wrap; margin-top: var(--s2); }
+.shot-video { display: grid; place-content: center; justify-items: center; gap: var(--s1); min-height: 96px; background: var(--stone); color: var(--ink); font: inherit; font-size: var(--t-sm); }
+.shot-video .play { font-size: 1.6rem; line-height: 1; color: var(--accent); }
+#rec-btn { font-variant-numeric: tabular-nums; }
 /* Defects blocking tests: linked items as rows, each opens the other side. */
 .blk { display: grid; gap: var(--s1); margin-bottom: var(--s2); }
 .blk-chip { display: flex; align-items: baseline; gap: var(--s2); flex-wrap: wrap; border-radius: var(--r-sm); padding: var(--s2) var(--s3); background: var(--stone); }
