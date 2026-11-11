@@ -524,6 +524,7 @@ details.item[open] > summary { border-bottom: 1px solid var(--stone); }
 .row2 { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: var(--s3); }
 
 /* add defect */
+.add-closed { margin-top: var(--s3); }
 form.add { margin-top: var(--s3); display: grid; gap: var(--s3); background: var(--paper); border-radius: var(--r-lg); padding: var(--s4) var(--s5); }
 form.add .row3 { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--s3); }
 @media (max-width: 600px) { form.add .row3, .row2 { grid-template-columns: minmax(0, 1fr); } }

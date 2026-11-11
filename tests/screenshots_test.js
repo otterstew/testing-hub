@@ -135,6 +135,7 @@ const PNG = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAYAAABytg0kAAAAFElEQVR
   check('…and the history says so', /screenshot removed \(rule-error\.png\)/.test(await page.locator('details.item[data-id="D-01"] .log').innerText()));
 
   // --- a new defect opens ready for screenshots ---
+  await page.click('[data-act="nd-open"]');
   await page.fill('#nd-area', 'Settings');
   await page.fill('#nd-sum', 'History shows the wrong time');
   await page.click('#add-defect button[type="submit"]');

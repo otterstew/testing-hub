@@ -121,7 +121,9 @@
   }
 
   function loadAll() {
-    mode = "loading"; render();
+    // A Refresh keeps the page on screen while it fetches, so you stay where you were; only the
+    // first load shows "Loading the hub…" (blanking the page lost the scroll position).
+    if (mode === "online") { ui.refreshing = true; render(); } else { mode = "loading"; render(); }
     return Promise.all([
       sb.from("th_records").select("kind,rid,data,updated_at").range(0, 9999),
       sb.from("th_log").select("at,text,by").order("at", { ascending: false }).limit(300)
@@ -139,9 +141,10 @@
       s.updated = latest ? local(new Date(latest)) : "";
       state = s; sortState();
       mode = r[0].data && r[0].data.length ? "online" : "noaccess";
+      ui.refreshing = false;
       reapplyPending();
       render();
-    }).catch(function (e) { mode = "error"; ui.notice = { kind: "err", text: "Couldn’t load the hub: " + ((e && e.message) || "network error") + ". Check the connection, then reload." }; render(); });
+    }).catch(function (e) { ui.refreshing = false; mode = "error"; ui.notice = { kind: "err", text: "Couldn’t load the hub: " + ((e && e.message) || "network error") + ". Check the connection, then reload." }; render(); });
   }
 
   function reapplyPending() {
@@ -445,12 +448,16 @@
     });
     var nextId = nextDefectId();
     var html = '<div class="filters"><input type="search" id="f-dq" placeholder="Search defects" value="' + esc(ui.dq) + '"><select id="f-dstatus"><option value="">All defects</option><option value="open"' + (ui.dstatus === "open" ? " selected" : "") + ">Open only</option>" + DSTATUS.map(function (s) { return "<option" + (s === ui.dstatus ? " selected" : "") + ">" + esc(s) + "</option>"; }).join("") + '<option value="deleted"' + (ui.dstatus === "deleted" ? " selected" : "") + ">Deleted (" + state.defects.filter(function (d) { return !live(d); }).length + ")</option>" + '</select><span class="count">' + L.length + " shown</span></div>";
-    if (!ui.readOnly) {
+    var ndDraft = ui.nd && (ui.nd.link || ui.nd.area || ui.nd.sum || ui.nd.steps || ui.nd.ref);
+    if (!ui.readOnly && !ui.ndOpen && !ndDraft) {
+      // Starts as one button (11 Nov 2026), so the list of defects is what you see first.
+      html += '<div class="add-closed"><button class="btn" data-act="nd-open">+ New defect · ' + nextId + "</button></div>";
+    } else if (!ui.readOnly) {
       var nd = ui.nd || {}, from = nd.link && find(state.tests, nd.link);
       html += '<form class="add" id="add-defect"><div class="eyebrow">New defect · ' + nextId + (from ? " · from " + esc(from.id) : "") + '</div><div class="row3"><div class="field"><label for="nd-area">Area</label><input type="text" id="nd-area" required placeholder="e.g. Rules" value="' + esc(nd.area || "") + '"></div><div class="field"><label for="nd-sev">Severity</label><select id="nd-sev">' + SEV.map(function (s) { return "<option" + (s === (nd.sev || "Medium") ? " selected" : "") + ">" + s + "</option>"; }).join("") + '</select></div><div class="field"><label for="nd-ref">Test ref</label><input type="text" id="nd-ref" placeholder="e.g. RUL-01" value="' + esc(nd.ref || "") + '"></div></div>' +
         '<div class="field"><label for="nd-sum">What goes wrong</label><textarea id="nd-sum" required>' + esc(nd.sum || "") + '</textarea></div><div class="field"><label for="nd-steps">Steps / evidence</label><textarea id="nd-steps">' + esc(nd.steps || "") + "</textarea></div>" +
         (from ? '<label class="check"><input type="checkbox" id="nd-link"' + (nd.linkOff ? "" : " checked") + "> Link it to " + esc(from.id) + " as a defect blocking it, so the test is set to Retest once it’s fixed</label>" : "") +
-        '<div class="actions"><button class="btn primary" type="submit">Add defect</button>' + (from ? '<button class="btn" type="button" data-act="nd-cancel">Cancel</button>' : "") + "</div></form>";
+        '<div class="actions"><button class="btn primary" type="submit">Add defect</button><button class="btn" type="button" data-act="nd-cancel">Cancel</button></div></form>';
     }
     html += '<div class="list">' + L.map(function (d) {
       return '<details class="item" data-id="' + esc(d.id) + '"' + (ui.open === d.id ? " open" : "") + '><summary><span class="mono">' + esc(d.id) + '</span><span class="obj">' + esc(d.summary) + "<small>" + esc(d.area) + (d.ref ? " · " + linked(d.ref, d.id) : "") + " · " + esc(d.date) + (d.shots && d.shots.length ? " · " + d.shots.length + " screenshot" + (d.shots.length === 1 ? "" : "s") : "") + (blockedTests(d.id).length ? " · blocks " + blockedTests(d.id).length + " test" + (blockedTests(d.id).length === 1 ? "" : "s") : "") + "</small></span>" + '<span class="pills">' + dstatusPill(d) + sevPill(d.severity) + "</span></summary>" +
@@ -965,8 +972,9 @@
     var pe = $("#peek"), peekScroll = pe && !ui.peekTop ? pe.scrollTop : 0;
     try { selStart = document.activeElement && document.activeElement.selectionStart; } catch (e) {}
     var openEl = root.querySelector("details.item[open]"); if (openEl) ui.open = openEl.getAttribute("data-id");
+    var keepY = ui.drawnTab === ui.tab ? window.scrollY : null;
     var c = counts(state.tests), od = state.defects.filter(openDefect).length, pc = pendingCount();
-    var chip = !hosted ? '<span class="mode off">Offline copy</span>' : ui.saveErr ? '<span class="mode off">Not saved yet · ' + pc + "</span>" : (flushing || pc) ? '<span class="mode">Saving…</span>' : '<span class="mode on">All changes saved</span>';
+    var chip = !hosted ? '<span class="mode off">Offline copy</span>' : ui.saveErr ? '<span class="mode off">Not saved yet · ' + pc + "</span>" : ui.refreshing ? '<span class="mode">Refreshing…</span>' : (flushing || pc) ? '<span class="mode">Saving…</span>' : '<span class="mode on">All changes saved</span>';
     var acts = hosted
       ? chip + '<button class="btn" data-act="reload" title="Load the latest from the hub">Refresh</button><label class="btn" for="imp">Upload spreadsheet</label><input type="file" id="imp" accept=".xlsx,.xls" hidden><button class="btn" data-act="export">Export spreadsheet</button><button class="btn" data-act="offline">Download offline copy</button><button class="btn" data-act="signout" title="' + esc(user && user.email) + '">Sign out</button>'
       : chip + '<label class="btn" for="imp">Upload spreadsheet</label><input type="file" id="imp" accept=".xlsx,.xls" hidden><button class="btn" data-act="export">Export spreadsheet</button><button class="btn primary" data-act="offline">Save offline copy' + (dirty ? " (" + dirty + ")" : "") + "</button>";
@@ -977,6 +985,10 @@
       '<main class="wrap">' + vNotice() + (ui.tab === "tests" ? vTests() : ui.tab === "defects" ? vDefects() : ui.tab === "parties" ? vParties() : ui.tab === "questions" ? vQuestions() : ui.tab === "documents" ? vDocuments() : vOverview()) + "</main>" +
       (ui.peek ? vPeek() : "");
     document.body.classList.toggle("peeking", !!ui.peek);
+    // Same tab, same place: the redraw replaces the page, and the browser does not always keep
+    // the scroll position when it does. A tab change scrolls to the top on purpose.
+    if (keepY != null && window.scrollY !== keepY) window.scrollTo(0, keepY);
+    ui.drawnTab = ui.tab;
     Object.keys(keep).forEach(function (id) { var el = document.getElementById(id); if (el && el.value === el.defaultValue) el.value = keep[id]; });
     if (ui.peek) { $("#peek").scrollTop = peekScroll; ui.peekTop = false; }
     if (focusId) { var f = document.getElementById(focusId); if (f) { f.focus(); try { if (selStart != null && f.setSelectionRange) f.setSelectionRange(selStart, selStart); } catch (e) {} } }
@@ -1043,7 +1055,8 @@
       if (fe && fe.dataset && fe.dataset.k) setField(fe.dataset.k, fe.dataset.id, fe.dataset.f, fe.value, fe.dataset.l);
       render();
     }
-    else if (a === "nd-cancel") { ui.nd = null; render(); }
+    else if (a === "nd-cancel") { ui.nd = null; ui.ndOpen = false; render(); }
+    else if (a === "nd-open") { ui.ndOpen = true; render(); var na = $("#nd-area"); if (na) na.focus(); }
     else if (a === "undo-free") undoFree();
     else if (a === "shot-open") openShot(t.getAttribute("data-shot"));
     else if (a === "shot-del") { ui.shotDel = t.getAttribute("data-shot"); render(); }
@@ -1053,7 +1066,13 @@
   // Following a link, or Back and Forward between them.
   window.addEventListener("hashchange", function () { var h = readHash(); if (h) { ui.tab = h.tab; ui.go = h.id; render(); } });
   // Opening a defect loads its thumbnails.
-  document.addEventListener("toggle", function (e) { if (e.target.matches && e.target.matches("details.item[open]")) loadThumbs(); }, true);
+  document.addEventListener("toggle", function (e) {
+    if (!e.target.matches || !e.target.matches("details.item")) return;
+    // Remember what is open, and forget what was closed (11 Nov 2026): a redraw used to reopen
+    // the item you had just closed, because closing never cleared it.
+    var id = e.target.getAttribute("data-id");
+    if (e.target.open) { ui.open = id; loadThumbs(); } else if (ui.open === id) ui.open = null;
+  }, true);
   // Pasting an image while a defect is open adds it as a screenshot.
   document.addEventListener("paste", function (e) {
     if (ui.tab !== "defects") return;
@@ -1097,7 +1116,7 @@
     if (hosted) queue("defect", rec); else { dirty++; saveDraft(); }
     var lk = $("#nd-link"), from = ui.nd && ui.nd.link && lk && lk.checked && find(state.tests, ui.nd.link);
     if (from && (from.blockedBy || []).indexOf(id) < 0) { from.blockedBy = (from.blockedBy || []).concat(id); addLog(from.id + ": blocked by " + id); addLog(id + ": blocking " + from.id); saveTest(from); }
-    ui.nd = null;
+    ui.nd = null; ui.ndOpen = false;
     // Open the new defect (render keeps whichever one is open in the page, so close that first).
     Array.prototype.forEach.call(document.querySelectorAll("details.item[open]"), function (el) { el.open = false; });
     ui.open = id;

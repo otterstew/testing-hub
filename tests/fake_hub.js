@@ -37,6 +37,8 @@ window.__db = saved ? saved.db : {
       delete: function () { return self; },
       then: function (ok, bad) {
         var data = self._rows || (table === 'th_records' ? JSON.parse(JSON.stringify(window.__db.records)) : window.__db.log);
+        // window.__delay (ms) slows reads, as a real network does; unset, they answer at once.
+        if (window.__delay) return new Promise(function (r) { setTimeout(function () { r({ data: data, error: null }); }, window.__delay); }).then(ok, bad);
         return Promise.resolve({ data: data, error: null }).then(ok, bad);
       }
     };

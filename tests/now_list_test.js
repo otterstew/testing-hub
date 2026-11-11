@@ -112,7 +112,9 @@ const RECORDS = [
   const d3 = await stored('D-03');
   check('the new defect is saved', d3 && d3.ref === 'RUL-01' && d3.area === 'Rules' && d3.summary === 'Weighting lost when a rule is saved', d3);
   check('…and linked to the test as blocking it', JSON.stringify((await stored('RUL-01')).blockedBy) === '["D-01","D-03"]');
-  check('the form is empty again', (await page.inputValue('#nd-area')) === '' && await page.locator('#nd-link').count() === 0);
+  check('the form closes back to its button', await page.locator('[data-act="nd-open"]').count() === 1 && await page.locator('#nd-link').count() === 0);
+  await page.click('[data-act="nd-open"]');
+  check('…and opens again empty', (await page.inputValue('#nd-area')) === '' && await page.locator('#nd-link').count() === 0);
   await page.goBack();
   await page.waitForSelector(item('RUL-01') + '[open]');
   check('Back returns to the test', await tabOn('tests'));
