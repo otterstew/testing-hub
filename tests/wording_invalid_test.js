@@ -1,4 +1,5 @@
-// Drives the hub with a fake Supabase client: a test case can be marked Invalid,
+// Drives the hub with a fake Supabase client: test parties show "Once working" and
+// no longer "Expected in current build"; a test case can be marked Invalid,
 // which leaves it out of the run totals, and a test's own wording (objective,
 // pre-conditions, steps, test data, expected result) can be edited in place.
 // No network, no account.
@@ -16,6 +17,7 @@ const RECORDS = [
   { kind: 'meta', rid: 'project', data: { project: 'Test project' }, updated_at: at },
   { kind: 'test', rid: 'RUL-01', data: { id: 'RUL-01', _o: 1, section: 'Rules', objective: 'Add a rule', steps: 'Open Rules, add a rul', expected: 'The rule saves', status: 'Pass' }, updated_at: at },
   { kind: 'test', rid: 'RUL-02', data: { id: 'RUL-02', _o: 2, section: 'Rules', objective: 'Map answers to scores', status: 'Not run' }, updated_at: at },
+  { kind: 'party', rid: 'TP-01', data: { id: 'TP-01', _o: 1, name: 'High risk company', module: 'Investor', type: 'Company', purpose: 'Used by RUL-01', tests: 'RUL-01', expectedNow: 'Low: not linked yet', expectedFinal: 'High', recorded: 'High' }, updated_at: at },
   { kind: 'test', rid: 'RUL-03', data: { id: 'RUL-03', _o: 3, section: 'Rules', objective: 'Remove a rule', status: 'Not run' }, updated_at: at },
 ];
 
@@ -68,6 +70,14 @@ const RECORDS = [
   await page.click('[data-tab="overview"]');
   const log = await page.locator('ul.log').innerText().catch(() => '');
   check('each change is in the activity log', /RUL-01: steps → Open Rules, add a rule/.test(log), log.slice(0, 200));
+
+  // --- 3. test parties: "Once working" only ---
+  await page.goto(hub.base + '#parties/TP-01');
+  await page.waitForSelector(item('TP-01') + '[open]');
+  const party = await page.locator(item('TP-01')).innerText();
+  check('a party no longer shows "Expected in current build"', !/current build|expected now|not linked yet/i.test(party), party.slice(0, 300));
+  check('…shows "Once working"', /Once working[\s\S]*High/.test(party), party.slice(0, 300));
+  check('…and the recorded risk is checked against it', /High · matches/.test(party), party.slice(0, 300));
 
   check('no page errors', errors.length === 0, errors);
   await browser.close(); hub.close && hub.close();

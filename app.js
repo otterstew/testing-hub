@@ -501,15 +501,16 @@
       '<select id="f-prec"><option value="">Recorded or not</option><option value="no"' + (ui.precorded === "no" ? " selected" : "") + '>Not recorded yet</option><option value="yes"' + (ui.precorded === "yes" ? " selected" : "") + ">Recorded</option></select>" +
       '<span class="count">' + L.length + " shown</span></div><div class=\"list\">";
     h += L.map(function (p) {
-      var match = p.recorded ? (String(p.expectedNow).indexOf(p.recorded) === 0 && String(p.expectedNow).charAt(p.recorded.length) !== "+") : null;
+      // Recorded against "Once working" (11 Nov 2026): "Expected in current build" is no longer
+      // shown. The values stay in the data and the spreadsheet, in case they are wanted again.
+      var match = p.recorded ? (String(p.expectedFinal).indexOf(p.recorded) === 0 && String(p.expectedFinal).charAt(p.recorded.length) !== "+") : null;
       var chip = match === null ? '<span class="pill s-notrun">Not recorded</span>' : match ? '<span class="pill s-pass">' + esc(p.recorded) + " · matches</span>" : '<span class="pill s-partial">' + esc(p.recorded) + " · check</span>";
-      return '<details class="item" data-id="' + esc(p.id) + '"' + (ui.open === p.id ? " open" : "") + '><summary><span class="mono">' + esc(p.id) + '</span><span class="obj">' + esc(p.name) + "<small>" + esc(p.module + " · " + p.type) + " · expected now: " + esc(p.expectedNow) + "</small></span>" + chip + "</summary>" +
+      return '<details class="item" data-id="' + esc(p.id) + '"' + (ui.open === p.id ? " open" : "") + '><summary><span class="mono">' + esc(p.id) + '</span><span class="obj">' + esc(p.name) + "<small>" + esc(p.module + " · " + p.type) + (p.expectedFinal ? " · once working: " + esc(p.expectedFinal) : "") + "</small></span>" + chip + "</summary>" +
         '<div class="body"><div class="field" style="gap:10px">' +
         '<div class="field"><span class="lab">Purpose</span><div class="txt">' + linked(p.purpose, p.id) + "</div></div>" +
         '<div class="field"><span class="lab">Values to enter (everything else: control values)</span><div class="txt setv">' + linked(p.values || "All control values.", p.id) + "</div></div>" +
         '<div class="field"><span class="lab">Related parties to add</span><div class="txt setv">' + linked(p.related || "None", p.id) + "</div></div>" + referencedByHtml(p.id) + "</div>" +
-        '<div class="edit"><div class="row2"><div class="field"><span class="lab">Expected in current build</span><div class="txt">' + esc(p.expectedNow) + "</div></div>" +
-        '<div class="field"><span class="lab">Once working</span><div class="txt">' + esc(p.expectedFinal) + (p.total ? ' <span class="count num">(' + esc(p.total) + ")</span>" : "") + "</div></div></div>" +
+        '<div class="edit"><div class="field"><span class="lab">Once working</span><div class="txt">' + esc(p.expectedFinal) + (p.total ? ' <span class="count num">(' + esc(p.total) + ")</span>" : "") + "</div></div>" +
         '<div class="field"><label for="pr-' + esc(p.id) + '">Recorded final risk</label><select id="pr-' + esc(p.id) + '" data-k="parties" data-f="recorded" data-l="recorded" data-id="' + esc(p.id) + '"' + (ui.readOnly ? " disabled" : "") + ">" + LEVELS.map(function (l) { return '<option value="' + l + '"' + (l === (p.recorded || "") ? " selected" : "") + ">" + (l || "–") + "</option>"; }).join("") + "</select></div>" +
         '<div class="field"><span class="lab">Used by tests</span><div class="txt">' + linked(p.tests, p.id) + "</div></div></div></div></details>";
     }).join("") + (L.length ? "" : '<p class="empty">No parties match.</p>') + "</div>";
@@ -918,7 +919,7 @@
         peekChips("Blocking tests", "tests", bl) + referencedByHtml(id, bl);
     } else if (top.tab === "parties") {
       h += '<p class="count">' + esc(r.module + " · " + r.type) + "</p>" + pf("Purpose", r.purpose, id) + pf("Values to enter", r.values || "All control values.", id) +
-        pf("Related parties to add", r.related, id) + pf("Expected in current build", r.expectedNow, id, true) + pf("Once working", r.expectedFinal, id, true) +
+        pf("Related parties to add", r.related, id) + pf("Once working", r.expectedFinal, id, true) +
         pf("Recorded final risk", r.recorded, id, true) + pf("Used by tests", r.tests, id) + referencedByHtml(id);
     } else {
       h += '<div class="pills">' + refPill("questions", r) + "</div>" + pf("Answer", r.a || "Not answered yet.", id) + pf("Tests affected", r.tests, id) + referencedByHtml(id);
