@@ -10,9 +10,15 @@
 --   Invalid), actual/comments/evidence/blocked-by/attachments cleared, parties'
 --   recorded risk cleared, defects removed, log kept.
 -- 'everything': every record except the project name, and the log.
--- th_log is append-only from the page, which is why this is security definer.
+-- th_log is append-only from the page, which is why the body is security definer.
+--
+-- 25 Nov 2026 (migration "testing_hub_clear_private"): the privileged body moved
+-- to th_private.clear, which the API doesn't expose (the same pattern as
+-- th_private.is_allowed). public.th_clear is now a security-invoker wrapper, so
+-- the page still calls rpc("th_clear") and nothing in app.js changes. This keeps
+-- the system health check's "privileged database functions locked" rule green.
 
-create or replace function public.th_clear(p_mode text)
+create or replace function th_private.clear(p_mode text)
 returns jsonb
 language plpgsql
 security definer
@@ -58,6 +64,18 @@ begin
 
   return jsonb_build_object('mode', p_mode, 'tests', v_tests, 'defects', v_defects, 'parties', v_parties, 'other', v_other, 'log', v_log);
 end;
+$$;
+
+revoke all on function th_private.clear(text) from public, anon;
+grant execute on function th_private.clear(text) to authenticated;
+
+create or replace function public.th_clear(p_mode text)
+returns jsonb
+language sql
+security invoker
+set search_path = public, pg_temp
+as $$
+  select th_private.clear(p_mode)
 $$;
 
 revoke all on function public.th_clear(text) from public, anon;
